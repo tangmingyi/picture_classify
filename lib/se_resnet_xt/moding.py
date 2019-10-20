@@ -20,7 +20,7 @@ import tensorflow as tf
 
 
 class SE_ResNet_Xt():
-    def __init__(self, input,layers=50,class_dim=1000):
+    def __init__(self, input,layers,class_dim):
         self.layers = layers
         self.net(input=input,class_dim=class_dim)
 
@@ -40,7 +40,7 @@ class SE_ResNet_Xt():
                 num_filters=64,
                 filter_size=7,
                 stride=2,
-                act='relu',
+                act=tf.nn.relu,
                 name='conv1', )
             conv = tf.layers.max_pooling2d(inputs=conv, pool_size=3, strides=3, padding='same')
 
@@ -55,7 +55,7 @@ class SE_ResNet_Xt():
                 num_filters=64,
                 filter_size=7,
                 stride=2,
-                act='relu',
+                act=tf.nn.relu,
                 name="conv1", )
             conv = tf.layers.max_pooling2d(inputs=conv, pool_size=3, strides=2, padding='same')
 
@@ -70,21 +70,21 @@ class SE_ResNet_Xt():
                 num_filters=64,
                 filter_size=3,
                 stride=2,
-                act='relu',
+                act=tf.nn.relu,
                 name='conv1')
             conv = self.conv_bn_layer(
                 input=conv,
                 num_filters=64,
                 filter_size=3,
                 stride=1,
-                act='relu',
+                act=tf.nn.relu,
                 name='conv2')
             conv = self.conv_bn_layer(
                 input=conv,
                 num_filters=128,
                 filter_size=3,
                 stride=1,
-                act='relu',
+                act=tf.nn.relu,
                 name='conv3')
             conv = tf.layers.max_pooling2d(inputs=conv, pool_size=3, strides=2, padding='same')
 
@@ -101,7 +101,7 @@ class SE_ResNet_Xt():
                     name=str(n) + '_' + str(i + 1))
         pool = self.global_avg_pooling_2d(conv)
         drop = tf.layers.dropout(inputs=pool, rate=0.5)
-        stdv = tf.division(tf.constant(1, tf.float32), tf.sqrt(tf.cast(drop.shape[1], tf.float32)))
+        stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(drop.shape[1], tf.float32)))
         self.cls = tf.layers.dense(inputs=drop, units=class_dim,
                               kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv))
 
@@ -128,7 +128,7 @@ class SE_ResNet_Xt():
             input=input,
             num_filters=num_filters,
             filter_size=1,
-            act='relu',
+            act=tf.nn.relu,
             name='conv' + name + '_x1')
         conv1 = self.conv_bn_layer(
             input=conv0,
@@ -136,7 +136,7 @@ class SE_ResNet_Xt():
             filter_size=3,
             stride=stride,
             groups=cardinality,
-            act='relu',
+            act=tf.nn.relu,
             name='conv' + name + '_x2')
         conv2 = self.conv_bn_layer(
             input=conv1,
@@ -155,7 +155,7 @@ class SE_ResNet_Xt():
         return tf.nn.relu(tf.add(short, scale))
 
     def global_avg_pooling_2d(self, input, name=None):
-        return tf.reduce_mean(input_tensor=input, axis=[1, 2], name=name, keep_dims=False)
+        return tf.reduce_mean(input_tensor=input, axis=[1, 2], name=name, keep_dims=True)
 
     def groups_conv2d(self, input, groups, num_filters, kernel_size, strides, padding):
         """
@@ -168,7 +168,8 @@ class SE_ResNet_Xt():
         :param padding:
         :return:
         """
-        input_dim = input.shape[-1]
+        input_dim = input.shape[-1].value
+        input.get_shape()
         if input_dim % groups != 0:
             raise ValueError('The number of input channels is not divisible '
                              'by the number of channel group. %d %% %d = %d' %
@@ -178,11 +179,11 @@ class SE_ResNet_Xt():
                              'by the number of channel group. %d %% %d = %d' %
                              (num_filters, groups, num_filters % groups))
         if (groups == 1):
-            return tf.layers.conv2d(inputs=input, num_filters=num_filters, kernel_size=kernel_size, strides=strides,
+            return tf.layers.conv2d(inputs=input,filters=num_filters, kernel_size=kernel_size, strides=strides,
                                     padding='same')
         else:
             kernel = tf.Variable(
-                initial_value=tf.random_normal(shape=[kernel_size, kernel_size, input_dim, num_filters]))
+                initial_value=tf.random_normal(shape=[kernel_size, kernel_size, input_dim//groups, num_filters]))
             input_slices = tf.split(value=input, num_or_size_splits=groups, axis=-1)
             kernel_slices = tf.split(value=kernel, num_or_size_splits=groups, axis=-1)
             out_slices = [
@@ -222,11 +223,11 @@ class SE_ResNet_Xt():
                            reduction_ratio,
                            name=None):
         pool = self.global_avg_pooling_2d(input)
-        stdv = tf.division(tf.constant(1, tf.float32), tf.sqrt(tf.cast(pool.shape[1], tf.float32)))
+        stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(pool.shape[1], tf.float32)))
         squeeze = tf.layers.dense(inputs=pool, units=num_channels // reduction_ratio,
                                   kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv))
 
-        stdv = tf.division(tf.constant(1, tf.float32), tf.sqrt(tf.cast(squeeze.shape[1], tf.float32)))
+        stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(squeeze.shape[1], tf.float32)))
         excitation = tf.layers.dense(inputs=squeeze, units=num_channels,
                                      kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv),
                                      activation=tf.nn.sigmoid)

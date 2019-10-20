@@ -120,12 +120,15 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
         unids = features["unid"]
         picture = features["picture"]
-        picture = tf.decode_raw(picture, tf.uint8)
+        # picture = tf.decode_raw(picture, tf.uint8)
+        # picture = tf.cast(picture,tf.float32)
+        picture = tf.divide(tf.cast(tf.decode_raw(picture, tf.uint8),tf.float32),tf.constant(255,tf.float32))
         picture = tf.reshape(picture, [-1, 3, 32, 32])
         picture = tf.transpose(picture, [0, 2, 3, 1])
         label = features["label"]
 
-        cls = create_model(picture, lays, class_dim)
+        cls = tf.squeeze(create_model(picture, lays, class_dim))
+
 
         tvars = tf.trainable_variables()
 
@@ -152,6 +155,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
         if mode == tf.estimator.ModeKeys.TRAIN:
             total_loss = -tf.reduce_mean(per_example_loss, axis=-1)
+            # total_loss = tf.losses.softmax_cross_entropy(tf.one_hot(label,depth=class_dim),cls)
 
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
@@ -166,7 +170,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
                 # evalute_hook(handle=handle,feed_handle=test_handle, run_op=total_loss, evl_step=10),
                 # train_hook(handle,train_handle)
                 # ],
-                scaffold=scaffold_fn
+
             )
         elif mode == tf.estimator.ModeKeys.EVAL:
 
@@ -229,7 +233,7 @@ def main(_):
     if configDir["do_train"] == 1:
         train_examples = process.Tool.get_total_example_num()
         num_train_steps = int(
-            len(train_examples) / configDir["train_batch_size"] * configDir["num_train_epochs"])
+            train_examples / configDir["train_batch_size"] * configDir["num_train_epochs"])
         num_warmup_steps = int(num_train_steps * configDir["warmup_proportion"])
 
     model_fn = model_fn_builder(lays=configDir["SeResnetXt_layers"], class_dim=configDir["class_dim"],
@@ -257,12 +261,12 @@ def main(_):
         return 0
 
     if configDir["do_train"] == 1:
-        input_files = os.listdir(os.path.join(configDir["DP"], "train"))
+        input_files = [ os.path.join(os.path.join(configDir["DP"], "train"),name) for name in os.listdir(os.path.join(configDir["DP"], "train"))]
         train_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=True, drop_remainder=True,
                                                      batch="train_batch_size")
-        estimator.train(input_fn=train_input_fn, max_steps=num_train_steps,
-                        hooks=[tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
-                               myhook.timeline_hook(with_one_timeline=True)])
+        estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+                        # ,hooks=[tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
+                        #        myhook.timeline_hook(with_one_timeline=True)])
 
     if configDir["do_test"] == 1:
 

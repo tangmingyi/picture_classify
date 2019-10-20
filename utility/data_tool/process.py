@@ -3,9 +3,8 @@ import collections
 import json
 import os
 import pickle
-import cv2
 
-conigDir = json.load(open("../../config_file/config.json",'r',encoding='utf-8'))
+conigDir = json.load(open("D:/programing/picture_classify/config_file/config.json",'r',encoding='utf-8'))
 class Example():
     def __init__(self,picture,label,name):
         self.picture = picture
@@ -74,6 +73,7 @@ class Tool():
             dataDir = Tool.get_raw_data(path)
             labels = dataDir[b'labels']
             total_num += len(labels)
+        return total_num
 
 
 class FeatureWriter(object):
