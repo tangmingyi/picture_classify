@@ -127,7 +127,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
         picture = tf.transpose(picture, [0, 2, 3, 1])
         label = features["label"]
 
-        cls = tf.squeeze(create_model(picture, lays, class_dim))
+        cls = create_model(picture, lays, class_dim)
 
 
         tvars = tf.trainable_variables()
@@ -261,7 +261,7 @@ def main(_):
         return 0
 
     if configDir["do_train"] == 1:
-        input_files = [ os.path.join(os.path.join(configDir["DP"], "train"),name) for name in os.listdir(os.path.join(configDir["DP"], "train"))]
+        input_files = [ os.path.join(configDir["DP"], "train",name) for name in os.listdir(os.path.join(configDir["DP"], "train"))]
         train_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=True, drop_remainder=True,
                                                      batch="train_batch_size")
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
@@ -273,7 +273,8 @@ def main(_):
         tf.logging.info("***** Running predictions *****")
         tf.logging.info("  Batch size = %d", configDir["test_batch_size"])
 
-        input_files = os.listdir(os.path.join(configDir["DP"], "test"))
+        input_files = [ os.path.join(configDir["DP"], "test",name) for name in os.listdir(os.path.join(configDir["DP"], "test"))]
+        # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
         predict_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=False,
                                                        batch="predict_batch_size")
 
@@ -286,10 +287,10 @@ def main(_):
             # if len(all_results) % 1000 == 0:
             tf.logging.info("Processing example: %d" % (mm))
             # wf.write(json.dumps(result)+"/n")
-            example_id = result["unique_ids"].decode()
+            example_id = result["unique_ids"]
             predict = result["predict"]
             label = result["label"]
-            wf.write("\t".join([example_id,predict,label])+"\n")
+            wf.write("{}\t{}\t{}\n".format(example_id,predict,label))
         wf.close()
 
 

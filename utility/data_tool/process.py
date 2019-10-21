@@ -4,7 +4,7 @@ import json
 import os
 import pickle
 
-conigDir = json.load(open("D:/programing/picture_classify/config_file/config.json",'r',encoding='utf-8'))
+conigDir = json.load(open("/home/tmy/programming/picture_classify/config_file/config.json",'r',encoding='utf-8'))
 class Example():
     def __init__(self,picture,label,name):
         self.picture = picture
@@ -107,4 +107,13 @@ class FeatureWriter(object):
         self._writer.close()
 
 if __name__ == '__main__':
-    pass
+    right_num = 0
+    with open("/home/tmy/programming/picture_classify/result/predict.txt",'r',encoding='utf-8') as rf:
+        for index,line in enumerate(rf):
+            lines = line.split("\t")
+            predict = lines[1].strip()
+            label = lines[2].strip()
+            if(predict==label):
+                right_num+=1
+    print("acc is {}".format(right_num/(index+1)))
+

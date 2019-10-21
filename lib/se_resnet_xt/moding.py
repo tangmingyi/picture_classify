@@ -99,7 +99,7 @@ class SE_ResNet_Xt():
                     cardinality=cardinality,
                     reduction_ratio=reduction_ratio,
                     name=str(n) + '_' + str(i + 1))
-        pool = self.global_avg_pooling_2d(conv)
+        pool = self.global_avg_pooling_2d(conv,False)
         drop = tf.layers.dropout(inputs=pool, rate=0.5)
         stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(drop.shape[1], tf.float32)))
         self.cls = tf.layers.dense(inputs=drop, units=class_dim,
@@ -154,8 +154,8 @@ class SE_ResNet_Xt():
 
         return tf.nn.relu(tf.add(short, scale))
 
-    def global_avg_pooling_2d(self, input, name=None):
-        return tf.reduce_mean(input_tensor=input, axis=[1, 2], name=name, keep_dims=True)
+    def global_avg_pooling_2d(self, input, keep_dim,name=None):
+        return tf.reduce_mean(input_tensor=input, axis=[1, 2], name=name, keep_dims=keep_dim)
 
     def groups_conv2d(self, input, groups, num_filters, kernel_size, strides, padding):
         """
@@ -222,7 +222,7 @@ class SE_ResNet_Xt():
                            num_channels,
                            reduction_ratio,
                            name=None):
-        pool = self.global_avg_pooling_2d(input)
+        pool = self.global_avg_pooling_2d(input,True)
         stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(pool.shape[1], tf.float32)))
         squeeze = tf.layers.dense(inputs=pool, units=num_channels // reduction_ratio,
                                   kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv))
