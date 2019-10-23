@@ -65,6 +65,7 @@ def file_based_input_fn_builder(input_file, is_training, drop_remainder, batch):
 
     return input_fn
 
+
 def input_fn_builder(input_file, is_training, drop_remainder, batch):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
@@ -73,7 +74,6 @@ def input_fn_builder(input_file, is_training, drop_remainder, batch):
         "picture": tf.FixedLenFeature([], tf.string),
         "label": tf.FixedLenFeature([], tf.int64),
     }
-
 
     def _decode_record(record, name_to_features):
         """Decodes a record to a TensorFlow example."""
@@ -100,6 +100,7 @@ def input_fn_builder(input_file, is_training, drop_remainder, batch):
 
     return input_fn
 
+
 def create_model(input, layers, class_dim):
     """Creates a classification model."""
     model = SE_ResNet_Xt(input, layers, class_dim)
@@ -122,13 +123,12 @@ def model_fn_builder(lays, class_dim, learning_rate,
         picture = features["picture"]
         # picture = tf.decode_raw(picture, tf.uint8)
         # picture = tf.cast(picture,tf.float32)
-        picture = tf.divide(tf.cast(tf.decode_raw(picture, tf.uint8),tf.float32),tf.constant(255,tf.float32))
+        picture = tf.divide(tf.cast(tf.decode_raw(picture, tf.uint8), tf.float32), tf.constant(255, tf.float32))
         picture = tf.reshape(picture, [-1, 3, 32, 32])
         picture = tf.transpose(picture, [0, 2, 3, 1])
         label = features["label"]
 
         cls = create_model(picture, lays, class_dim)
-
 
         tvars = tf.trainable_variables()
 
@@ -184,12 +184,10 @@ def model_fn_builder(lays, class_dim, learning_rate,
                     "eval_loss": loss,
                 }
 
-            eval_metrics = (metric_fn,
-                            [per_example_loss, label, cls])
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
                 loss=-tf.reduce_sum(per_example_loss, axis=-1),
-                eval_metric_ops=eval_metrics,
+                eval_metric_ops=metric_fn(per_example_loss, label, cls),
                 scaffold=scaffold_fn)
 
         elif mode == tf.estimator.ModeKeys.PREDICT:
@@ -207,9 +205,6 @@ def model_fn_builder(lays, class_dim, learning_rate,
         return output_spec
 
     return model_fn
-
-
-
 
 
 def main(_):
@@ -261,26 +256,38 @@ def main(_):
         return 0
 
     if configDir["do_train"] == 1:
-        input_files = [ os.path.join(configDir["DP"], "train",name) for name in os.listdir(os.path.join(configDir["DP"], "train"))]
+        input_files = [os.path.join(configDir["DP"], "train", name) for name in
+                       os.listdir(os.path.join(configDir["DP"], "train"))]
         train_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=True, drop_remainder=True,
                                                      batch="train_batch_size")
-        estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
-                        # ,hooks=[tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
-                        #        myhook.timeline_hook(with_one_timeline=True)])
+
+        input_files = [os.path.join(configDir["DP"], "test", name) for name in
+                       os.listdir(os.path.join(configDir["DP"], "test"))]
+        # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
+        val_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=False,
+                                                   batch="predict_batch_size")
+
+        trainSpec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps, hooks=None)
+        valSpec = tf.estimator.EvalSpec(input_fn=val_input_fn, steps=configDir["trainStepVal"],
+                                        throttle_secs=configDir["throttle_secs"])
+        tf.estimator.train_and_evaluate(estimator=estimator, train_spec=trainSpec, eval_spec=valSpec)
+        # estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+        # ,hooks=[tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
+        #        myhook.timeline_hook(with_one_timeline=True)])
 
     if configDir["do_test"] == 1:
 
         tf.logging.info("***** Running predictions *****")
         tf.logging.info("  Batch size = %d", configDir["test_batch_size"])
 
-        input_files = [ os.path.join(configDir["DP"], "test",name) for name in os.listdir(os.path.join(configDir["DP"], "test"))]
+        input_files = [os.path.join(configDir["DP"], "test", name) for name in
+                       os.listdir(os.path.join(configDir["DP"], "test"))]
         # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
         predict_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=False,
                                                        batch="predict_batch_size")
 
-
-        wf = open(configDir["test_res_output"],"w",encoding="utf-8")
-        for mm,result in enumerate(estimator.predict(
+        wf = open(configDir["test_res_output"], "w", encoding="utf-8")
+        for mm, result in enumerate(estimator.predict(
                 predict_input_fn, yield_single_examples=True
                 # ,hooks=[tf_debug.LocalCLIDebugHook(ui_type="readline")]
         )):
@@ -290,7 +297,7 @@ def main(_):
             example_id = result["unique_ids"]
             predict = result["predict"]
             label = result["label"]
-            wf.write("{}\t{}\t{}\n".format(example_id,predict,label))
+            wf.write("{}\t{}\t{}\n".format(example_id, predict, label))
         wf.close()
 
 
