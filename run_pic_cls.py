@@ -13,17 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Run BERT on SQuAD 1.1 and SQuAD 2.0."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import os
 from lib.se_resnet_xt.moding import SE_ResNet_Xt
 from lib.se_resnet_xt import optimization, myhook
 from utility.data_tool import process
 import tensorflow as tf
+
+
 from tensorflow.python import debug as tfdbg
 
 configDir = json.load(open("config_file/config.json", "r", encoding="utf-8"))
@@ -121,11 +118,29 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
         unids = features["unid"]
         picture = features["picture"]
-        # picture = tf.decode_raw(picture, tf.uint8)
-        # picture = tf.cast(picture,tf.float32)
-        picture = tf.divide(tf.cast(tf.decode_raw(picture, tf.uint8), tf.float32), tf.constant(255, tf.float32))
+        picture = tf.decode_raw(picture, tf.uint8)
+        picture = tf.cast(picture,tf.float32)
         picture = tf.reshape(picture, [-1, 3, 32, 32])
         picture = tf.transpose(picture, [0, 2, 3, 1])
+        pic_summary1 = tf.summary.image("picture_org",picture)
+
+        picture = tf.divide(picture, tf.constant(255, tf.float32))
+
+
+        #图像增强
+        picture = tf.image.random_saturation(
+                    tf.image.random_hue(
+                    tf.image.random_brightness(
+                    tf.image.random_contrast(
+                    tf.image.random_flip_up_down(
+                    tf.image.random_flip_left_right(picture)
+                    ),configDir["contrast_lower"],configDir["contrast_up"]),configDir["bright_max_delta"]
+                    ),configDir["hue_max_delta"]),configDir["saturation_low"],configDir["saturation_up"])
+        pic_summary2 = tf.summary.image("picture_enhancement",picture)
+
+        summary_hook1 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary1)
+        summary_hook2 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary2)
+
         label = features["label"]
 
         cls = create_model(picture, lays, class_dim)
@@ -152,6 +167,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
             return loss
 
         per_example_loss = compute_loss(cls, label)
+        global_step = tf.train.get_or_create_global_step()
 
         if mode == tf.estimator.ModeKeys.TRAIN:
             total_loss = -tf.reduce_mean(per_example_loss, axis=-1)
@@ -159,6 +175,10 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
+            # train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
+            #                                        ,global_step=global_step).minimize(total_loss,global_step=global_step)
+
+
 
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
@@ -166,7 +186,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
                 train_op=train_op,
                 export_outputs=None,
                 training_chief_hooks=None,
-                # training_hooks=[
+                training_hooks=[summary_hook1,summary_hook2]
                 # evalute_hook(handle=handle,feed_handle=test_handle, run_op=total_loss, evl_step=10),
                 # train_hook(handle,train_handle)
                 # ],
@@ -181,12 +201,12 @@ def model_fn_builder(lays, class_dim, learning_rate,
                 loss = tf.metrics.mean(values=per_example_loss, weights=None)
                 return {
                     "eval_accuracy": accuracy,
-                    "eval_loss": loss,
+                    # "eval_loss": loss,
                 }
 
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
-                loss=-tf.reduce_sum(per_example_loss, axis=-1),
+                loss=-tf.reduce_mean(per_example_loss, axis=-1),
                 eval_metric_ops=metric_fn(per_example_loss, label, cls),
                 scaffold=scaffold_fn)
 
