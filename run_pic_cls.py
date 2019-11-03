@@ -31,7 +31,7 @@ def file_based_input_fn_builder(input_file, is_training, drop_remainder, batch):
 
     name_to_features = {
         "unid": tf.FixedLenFeature([], tf.int64),
-        "picture": tf.FixedLenFeature([], tf.string),
+        "image/encoded": tf.FixedLenFeature([], tf.string),
         "label": tf.FixedLenFeature([], tf.int64),
     }
 
@@ -117,29 +117,38 @@ def model_fn_builder(lays, class_dim, learning_rate,
             tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
 
         unids = features["unid"]
-        picture = features["picture"]
+        picture = features["image/encoded"]
         picture = tf.decode_raw(picture, tf.uint8)
         picture = tf.cast(picture,tf.float32)
         picture = tf.reshape(picture, [-1, 3, 32, 32])
         picture = tf.transpose(picture, [0, 2, 3, 1])
-        pic_summary1 = tf.summary.image("picture_org",picture)
+
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            pic_summary1 = tf.summary.image("picture_org",picture)
 
         picture = tf.divide(picture, tf.constant(255, tf.float32))
 
 
         #图像增强
-        picture = tf.image.random_saturation(
-                    tf.image.random_hue(
-                    tf.image.random_brightness(
-                    tf.image.random_contrast(
-                    tf.image.random_flip_up_down(
-                    tf.image.random_flip_left_right(picture)
-                    ),configDir["contrast_lower"],configDir["contrast_up"]),configDir["bright_max_delta"]
-                    ),configDir["hue_max_delta"]),configDir["saturation_low"],configDir["saturation_up"])
-        pic_summary2 = tf.summary.image("picture_enhancement",picture)
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            normal_pic = tf.summary.image("normal_pic",picture)
+            # picture = tf.image.image_gradients
+            # stand_pic_summary = tf.summary.image("stand_pic",picture)
 
-        summary_hook1 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary1)
-        summary_hook2 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary2)
+            picture = picture + 5.0*tf.random_normal(shape=[32,32,3],mean=0,stddev=0.1)
+            nosiy_pic_summary = tf.summary.image("nosiy_pic",picture)
+
+            picture = tf.image.random_flip_left_right(picture)
+            picture = tf.image.random_flip_up_down(picture)
+            # picture = tf.image.random_saturation(picture,configDir["hue_max_delta"],configDir["saturation_low"],configDir["saturation_up"])
+            # picture = tf.image.random_hue(picture,configDir["hue_max_delta"])
+            # picture = tf.image.random_brightness(picture,configDir["bright_max_delta"])
+            # picture = tf.image.random_contrast(picture,configDir["contrast_lower"],configDir["contrast_up"])
+
+            pic_summary2 = tf.summary.image("picture_enhancement",picture)
+
+
+            # summary_hook2 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary2)
 
         label = features["label"]
 
@@ -177,8 +186,11 @@ def model_fn_builder(lays, class_dim, learning_rate,
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
             # train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
             #                                        ,global_step=global_step).minimize(total_loss,global_step=global_step)
-
-
+            # decay_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,global_step=global_step,decay_steps=configDir["decay_steps"],decay_rate=configDir["decay_rate"])
+            # learning_rate_summary = tf.summary.scalar("decay_learning_rate",decay_learning_rate)
+            # train_op = tf.train.GradientDescentOptimizer(decay_learning_rate).minimize(total_loss,global_step=global_step)
+            summary_hook1 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"]
+                                                      ,summary_op=[pic_summary1,pic_summary2,normal_pic,nosiy_pic_summary])
 
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
@@ -186,7 +198,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
                 train_op=train_op,
                 export_outputs=None,
                 training_chief_hooks=None,
-                training_hooks=[summary_hook1,summary_hook2]
+                training_hooks=[summary_hook1]
                 # evalute_hook(handle=handle,feed_handle=test_handle, run_op=total_loss, evl_step=10),
                 # train_hook(handle,train_handle)
                 # ],
@@ -214,6 +226,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
             predictions = {
                 "unique_ids": unids,
                 "predict": tf.arg_max(cls, -1),
+                "logits":tf.arg_max(tf.nn.softmax(cls,-1),-1),
                 "label": label,
             }
             output_spec = tf.estimator.EstimatorSpec(
@@ -268,7 +281,7 @@ def main(_):
     if configDir["save_predict_model_for_tfServing"] == 1:
         serving_input_receiver_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn({
             "unid": tf.FixedLenFeature([], tf.int64),
-            "picture": tf.FixedLenFeature([], tf.string),
+            "image/encoded": tf.FixedLenFeature([], tf.string),
             "label": tf.FixedLenFeature([], tf.int64),
         })
         estimator.export_savedmodel(configDir["TFServing_model_path"], serving_input_receiver_fn,
