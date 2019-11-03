@@ -6,7 +6,7 @@ import pickle
 import cv2
 import multiprocessing
 
-conigDir = json.load(open("D://programing//picture_classify//config_file//config.json", 'r', encoding='utf-8'))
+conigDir = json.load(open("/home/tmy/programming/picture_classify/config_file/config.json", 'r', encoding='utf-8'))
 
 
 class Example():
@@ -141,7 +141,7 @@ class FeatureWriter(object):
 
         features = collections.OrderedDict()
         features["unid"] = create_int_feature([feature.unid])
-        features["picture"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.picture.tobytes()]))
+        features["image/encoded"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.picture.tobytes()]))
         features["label"] = create_int_feature([feature.label])
         features["name"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.name]))
 
@@ -153,12 +153,39 @@ class FeatureWriter(object):
 
 
 if __name__ == '__main__':
-    right_num = 0
-    with open("/home/tmy/programming/picture_classify/result/predict.txt", 'r', encoding='utf-8') as rf:
-        for index, line in enumerate(rf):
-            lines = line.split("\t")
-            predict = lines[1].strip()
-            label = lines[2].strip()
-            if (predict == label):
-                right_num += 1
-    print("acc is {}".format(right_num / (index + 1)))
+    W = tf.Variable(tf.zeros([784, 10]))
+    b = tf.Variable(tf.zeros([10]))
+    x = tf.placeholder("float", [None, 784], name="x")
+    y = tf.nn.softmax(tf.matmul(x, W) + b, name="y")
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        ckpt = tf.train.get_checkpoint_state("./cps/")
+        if ckpt and ckpt.model_checkpoint_path:
+            print(ckpt.model_checkpoint_path)
+            saver.restore(sess, ckpt.model_checkpoint_path)
+        # summary = tf.summary.merge_all()
+        # summary_writer = tf.summary.FileWriter('/Users/andy/Downloads/mnist_logs_2', sess.graph)
+        builder = tf.saved_model.builder.SavedModelBuilder("/Users/andy/Downloads/mnist_tfserving_model")
+        prediction_signature = tf.saved_model.signature_def_utils.build_signature_def(
+            inputs={
+                'x': tf.saved_model.utils.build_tensor_info(x),
+            },
+            outputs={
+                'y': tf.saved_model.utils.build_tensor_info(y),
+            },
+            method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
+
+        legacy_init_op = tf.group(
+            tf.tables_initializer(), name='legacy_init_op')
+        builder.add_meta_graph_and_variables(
+            sess, [tf.saved_model.tag_constants.SERVING],
+            signature_def_map={
+                'mnist':
+                    prediction_signature,
+            },
+            clear_devices=False,
+            legacy_init_op=legacy_init_op)
+
+        builder.save()
+        print("model export done.")
