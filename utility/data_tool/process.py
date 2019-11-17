@@ -5,6 +5,10 @@ import os
 import pickle
 import cv2
 import multiprocessing
+import random
+import numpy as np
+from PIL import Image
+import Augmentor
 
 conigDir = json.load(open("/home/tmy/programming/picture_classify/config_file/config.json", 'r', encoding='utf-8'))
 
@@ -25,6 +29,14 @@ class Feature():
 
 
 class Tool():
+    @staticmethod
+    def Augmentor(pic_path,num):
+        p=Augmentor.Pipeline(pic_path)
+        p.random_erasing(probability=0.8,rectangle_area=0.4)
+        # p.random_distortion(probability=1,grid_height=4,grid_width=4,magnitude=3)
+        # p.shear(probability=1,max_shear_left=15,max_shear_right=15)
+        p.sample(num)
+
     @staticmethod
     def get_raw_data(path):
         with open(path, 'rb') as fo:
@@ -53,6 +65,78 @@ class Tool():
                         os.path.join("../../", conigDir["DP"], out_path, "tf_record{}".format(num * 1000)))
                 tf_writer.process_feature(Feature(index, datas[index], labels[index], filenames[index]))
             tf_writer.close()
+
+    @staticmethod
+    def get_train_jpg_tfrecord():
+        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/train"
+        img_paths = []
+        for name in os.listdir(pic_paths):
+            img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[0])))
+
+        random.shuffle(img_paths)
+        num = 1
+        tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "train_jpg", "tf_record{}".format(num*1000)))
+        for index,data in enumerate(img_paths):
+            if (index+1) % 1000 == 0:
+                num += 1
+                tf_writer.close()
+                tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "train_jpg", "tf_record{}".format(num * 1000)))
+
+            pic = tf.gfile.FastGFile(data[0],'rb').read()
+            # pic = tf.image.decode_jpeg(pic)
+            # pic = cv2.imread(data[0])
+            # pic = Image.open(data[0])
+            label = data[1]
+            tf_writer.process_feature(Feature(index,pic,label,data[0].encode()))
+        tf_writer.close()
+
+    @staticmethod
+    def get_train_jpg_augmentor_tfrecord():
+        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/output"
+        img_paths = []
+        for name in os.listdir(pic_paths):
+            img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[2])))
+
+        random.shuffle(img_paths)
+        num = 1
+        tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "train_augmentor", "tf_record{}".format(num*1000)))
+        for index,data in enumerate(img_paths):
+            if (index+1) % 1000 == 0:
+                num += 1
+                tf_writer.close()
+                tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "train_augmentor", "tf_record{}".format(num * 1000)))
+
+            pic = tf.gfile.FastGFile(data[0],'rb').read()
+            # pic = tf.image.decode_jpeg(pic)
+            # pic = cv2.imread(data[0])
+            # pic = Image.open(data[0])
+            label = data[1]
+            tf_writer.process_feature(Feature(index,pic,label,data[0].encode()))
+        tf_writer.close()
+
+    @staticmethod
+    def get_test_jpg_tfrecord():
+        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/test"
+        img_paths = []
+        for name in os.listdir(pic_paths):
+            img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[0])))
+
+        random.shuffle(img_paths)
+        num = 1
+        tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "test_jpg", "tf_record{}".format(num*1000)))
+        for index,data in enumerate(img_paths):
+            if (index+1) % 1000 == 0:
+                num += 1
+                tf_writer.close()
+                tf_writer = FeatureWriter(os.path.join("../../", conigDir["DP"], "test_jpg", "tf_record{}".format(num * 1000)))
+            # pic = cv2.imread(data[0])
+            pic = tf.gfile.FastGFile(data[0],'rb').read()
+            label = data[1]
+            tf_writer.process_feature(Feature(index,pic,label,data[0].encode()))
+        tf_writer.close()
+
+
+
 
     @staticmethod
     def get_test_tfrecord():
@@ -121,6 +205,44 @@ class Tool():
         with open(pickle_path, 'rb') as rf:
             return pickle.load(rf)
 
+    @staticmethod
+    def get_train_jpg_raw_data():
+        jpg_path = "/home/tmy/programming/picture_classify/data/raw_jpg_data"
+        out_path = "train"
+        if not os.path.exists(jpg_path):
+            os.mkdir(jpg_path)
+        if not os.path.exists(os.path.join(jpg_path,out_path)):
+            os.mkdir(os.path.join(jpg_path,out_path))
+        for i in range(1, 6):
+            path = os.path.join(conigDir["PD"], "data_batch_{}".format(i))
+            dataDir = Tool.get_raw_data(path)
+            datas = dataDir[b'data']
+            labels = dataDir[b'labels']
+            # filenames = dataDir[b'filenames']
+            for index,label in enumerate(labels):
+                cv2.imwrite(os.path.join(jpg_path,out_path,"{}_{}_{}.jpg".format(label,i,index)),datas[index].reshape([3,32,32]).transpose([1,2,0]))
+
+    @staticmethod
+    def get_test_jpg_raw_data():
+        jpg_path = "/home/tmy/programming/picture_classify/data/raw_jpg_data"
+        out_path = "test"
+        if not os.path.exists(jpg_path):
+            os.mkdir(jpg_path)
+        if not os.path.exists(os.path.join(jpg_path,out_path)):
+            os.mkdir(os.path.join(jpg_path,out_path))
+        path = os.path.join(conigDir["PD"], "test_batch")
+        dataDir = Tool.get_raw_data(path)
+        datas = dataDir[b'data']
+        # filenames = dataDir[b'filenames']
+        labels = dataDir[b'labels']
+        for index,label in enumerate(labels):
+            cv2.imwrite(os.path.join(jpg_path,out_path,"{}_{}.jpg".format(label,index)),datas[index].reshape([3,32,32]).transpose([1,2,0]))
+
+
+
+
+
+
 
 class FeatureWriter(object):
     """Writes InputFeature to TF example file."""
@@ -141,51 +263,21 @@ class FeatureWriter(object):
 
         features = collections.OrderedDict()
         features["unid"] = create_int_feature([feature.unid])
-        features["image/encoded"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.picture.tobytes()]))
+        features["image/encoded"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.picture]))
         features["label"] = create_int_feature([feature.label])
         features["name"] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[feature.name]))
 
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
         self._writer.write(tf_example.SerializeToString())
 
+
+
     def close(self):
         self._writer.close()
 
 
 if __name__ == '__main__':
-    W = tf.Variable(tf.zeros([784, 10]))
-    b = tf.Variable(tf.zeros([10]))
-    x = tf.placeholder("float", [None, 784], name="x")
-    y = tf.nn.softmax(tf.matmul(x, W) + b, name="y")
-    saver = tf.train.Saver()
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        ckpt = tf.train.get_checkpoint_state("./cps/")
-        if ckpt and ckpt.model_checkpoint_path:
-            print(ckpt.model_checkpoint_path)
-            saver.restore(sess, ckpt.model_checkpoint_path)
-        # summary = tf.summary.merge_all()
-        # summary_writer = tf.summary.FileWriter('/Users/andy/Downloads/mnist_logs_2', sess.graph)
-        builder = tf.saved_model.builder.SavedModelBuilder("/Users/andy/Downloads/mnist_tfserving_model")
-        prediction_signature = tf.saved_model.signature_def_utils.build_signature_def(
-            inputs={
-                'x': tf.saved_model.utils.build_tensor_info(x),
-            },
-            outputs={
-                'y': tf.saved_model.utils.build_tensor_info(y),
-            },
-            method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
+    # TRAIN = "/home/tmy/programming/picture_classify/data/raw_jpg_data/train"
+    # Tool.Augmentor(TRAIN,50*10000)
+    Tool.get_train_jpg_augmentor_tfrecord()
 
-        legacy_init_op = tf.group(
-            tf.tables_initializer(), name='legacy_init_op')
-        builder.add_meta_graph_and_variables(
-            sess, [tf.saved_model.tag_constants.SERVING],
-            signature_def_map={
-                'mnist':
-                    prediction_signature,
-            },
-            clear_devices=False,
-            legacy_init_op=legacy_init_op)
-
-        builder.save()
-        print("model export done.")
