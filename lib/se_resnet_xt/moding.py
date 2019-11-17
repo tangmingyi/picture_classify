@@ -109,7 +109,7 @@ class SE_ResNet_Xt():
         return self.cls
 
     def shortcut(self, input, ch_out, stride, name):
-        ch_in = input.shape[1]
+        ch_in = input.shape[-1]
         if ch_in != ch_out or stride != 1:
             filter_size = 1
             return self.conv_bn_layer(
