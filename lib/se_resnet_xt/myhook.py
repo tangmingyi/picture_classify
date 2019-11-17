@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.python import debug as tf_debug
 from tensorflow.python.client import timeline
 import json
+from tensorboard.plugins.beholder import Beholder
 
 class evalute_hook(tf.train.SessionRunHook):
     def __init__(self,handle,feed_handle,run_op,evl_step):
@@ -103,6 +104,38 @@ class timeline_hook(tf.train.SessionRunHook):
     def end(self, session):
         if self.with_one_timeline:
             self.multimeline.save("test_summary/timeline_step_%s.json" % self.step)
+
+class BeholderHook(tf.train.SessionRunHook):
+    """SessionRunHook implementation that runs Beholder every step.
+
+    Convenient when using tf.train.MonitoredSession:
+    ```python
+    beholder_hook = BeholderHook(LOG_DIRECTORY)
+    with MonitoredSession(..., hooks=[beholder_hook]) as sess:
+      sess.run(train_op)
+    ```
+    """
+    def __init__(self, logdir,list_of_np_ndarrays,frame):
+        """Creates new Hook instance
+
+        Args:
+          logdir: Directory where Beholder should write data.
+        """
+        self._logdir = logdir
+        self.beholder = None
+        self.list_of_np_ndarrays = list_of_np_ndarrays
+        self.frame = frame
+
+    def begin(self):
+        self.beholder = Beholder(self._logdir)
+
+    def before_run(self, run_context):
+        return tf.train.SessionRunArgs(fetches=self.list_of_np_ndarrays)
+
+    def after_run(self, run_context, run_values):
+        self.beholder.update(session = run_context.session,
+                             arrays=run_values.results,
+                             frame=self.frame)
 
 
 
