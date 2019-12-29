@@ -1,26 +1,30 @@
 {
-  "PD": "/home/tmy/programming/programming_data/cifar-10-batches-py",
+  "PD": "D://data//cifar-10-batches-py",
   "DP": "data/tf_record",
-  "model_dir": "result/model/checkpoint/resnet_3",
-  "train_input": "/home/tmy/programming/picture_classify/data/tf_record/train_augmentor",
-  "val_input": "/home/tmy/programming/picture_classify/data/tf_record/test_jpg",
-  "predict_input": "/home/tmy/programming/picture_classify/data/tf_record/test_jpg",
-  "save_summary_steps": 100,
-  "save_checkpoints_steps": 500,
+  "model_dir": "result/model/checkpoint/resnet_focal",
+  "train_input": "D://programing//picture_classify//data//tf_record//train_augmentor",
+  "val_input": "D://programing//picture_classify//data//tf_record//test_jpg",
+  "predict_input": "D://programing//picture_classify//data//tf_record//test_jpg",
+  "save_summary_steps": 300,
+  "save_checkpoints_steps": 3000,
   "keep_checkpoint_max": 5,
   "print_loss_steps": 100,
+
   "do_train": 1,
   "train_batch_size": 32,
   "num_train_epochs": 300,
+
   "do_val": 0,
   "val_batch_size": 128,
+
   "do_test": 0,
   "test_batch_size": 1000,
   "test_res_output": "result/predict.txt",
+
   "warmup_proportion": 0.1,
-  "SeResnetXt_layers": 50,
+
   "class_dim": 10,
-  "save_predict_model_for_tfServing": 1,
+  "save_predict_model_for_tfServing": 0,
   "TFServing_model_path": "result/model/serving/temp",
   "trainStepVal": 100,
   "throttle_secs": 150,
@@ -34,5 +38,21 @@
 
   "learning_rate": 1e-3,
   "decay_steps":10000,
-  "decay_rate":0.9
+  "decay_rate":0.9,
+
+  "beholder": 0,
+
+  "debug": 0,
+  "debug_config": {
+    "tfdbg": 1,
+    "tfdbgtensorboard": 0
+  },
+
+
+  "mode_config": "D://programing//picture_classify//config_file//cifar10modelresnet.json",
+
+  "loss_name": "focal",
+  "focal_loss_config":{"gamma": 2},
+  "GHM_loss_config": {"bin": 25,"step_length": 0.1}
+
 }

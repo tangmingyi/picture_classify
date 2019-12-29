@@ -29,6 +29,10 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import json
+
+model_config = json.load(
+    open(json.load(open("config_file/config.json", 'r', encoding='utf-8'))["mode_config"], 'r', encoding='utf-8'))
 
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
@@ -36,6 +40,9 @@ DEFAULT_VERSION = 2
 DEFAULT_DTYPE = tf.float32
 CASTABLE_TYPES = (tf.float16,)
 ALLOWED_TYPES = (DEFAULT_DTYPE,) + CASTABLE_TYPES
+
+GROUPS = model_config["groups"]
+REDUCTIONRATIO = model_config["reduction_ratio"]
 
 
 ################################################################################
@@ -75,19 +82,73 @@ def fixed_padding(inputs, kernel_size, data_format):
                                         [pad_beg, pad_end], [0, 0]])
     return padded_inputs
 
+def squeeze_excitation(
+                       input,
+                       num_channels,
+                       reduction_ratio,
+                        data_format,
+                       name=None):
+    if data_format == "channels_last":
+        axis = [1,2]
+    else:
+        axis = [2,3]
+    pool = tf.reduce_mean(input,axis=axis,keepdims=False)
+    stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(pool.shape[1], tf.float32)))
+    squeeze = tf.layers.dense(inputs=pool, units=num_channels // reduction_ratio,
+                              kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv))
 
-def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
+    stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(squeeze.shape[1], tf.float32)))
+    excitation = tf.layers.dense(inputs=squeeze, units=num_channels,
+                                 kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv),
+                                 activation=tf.nn.sigmoid)
+    if data_format == "channels_last":
+        excitation = tf.expand_dims(tf.expand_dims(excitation,axis=1),axis=1)
+    else:
+        excitation = tf.expand_dims(tf.expand_dims(excitation,axis=-1),axis=-1)
+
+    scale = tf.multiply(x=input, y=excitation)
+    return scale
+
+
+def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format, groups=1):
     """Strided 2-D convolution with explicit padding."""
     # The padding is consistent and is based only on `kernel_size`, not on the
     # dimensions of `inputs` (as opposed to using `tf.layers.conv2d` alone).
     if strides > 1:
         inputs = fixed_padding(inputs, kernel_size, data_format)
 
-    return tf.layers.conv2d(
-        inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
-        padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
-        kernel_initializer=tf.variance_scaling_initializer(),
-        data_format=data_format)
+    if groups == 1:
+        return tf.layers.conv2d(
+            inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
+            padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
+            kernel_initializer=tf.variance_scaling_initializer(),
+            data_format=data_format)
+    else:
+        if data_format == "channels_last":
+            input_dim = inputs.shape[-1].value
+            axis = -1
+        else:
+            input_dim = inputs.shape[1].value
+            axis = 1
+
+        if input_dim % groups != 0:
+            raise ValueError('The number of input channels is not divisible '
+                             'by the number of channel group. %d %% %d = %d' %
+                             (input_dim, groups, input_dim % groups))
+        if filters % groups != 0:
+            raise ValueError('The number of output channels is not divisible '
+                             'by the number of channel group. %d %% %d = %d' %
+                             (filters, groups, filters % groups))
+
+        input_slices = tf.split(value=inputs, num_or_size_splits=groups, axis=axis)
+        out_slices = [
+            tf.layers.conv2d(
+                inputs=input_slice, filters=filters // groups, kernel_size=kernel_size, strides=strides,
+                padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
+                kernel_initializer=tf.variance_scaling_initializer(),
+                data_format=data_format) for input_slice in input_slices
+        ]
+        return tf.concat(values=out_slices, axis=axis)
 
 
 ################################################################################
@@ -288,6 +349,66 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
     return inputs + shortcut
 
 
+def _bottleneck_block_xt_v2(inputs, filters, training, projection_shortcut,
+                                                        strides, data_format):
+    shortcut = inputs
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+
+    # The projection shortcut should come after the first batch norm and ReLU
+    # since it performs a 1x1 convolution.
+    if projection_shortcut is not None:
+        shortcut = projection_shortcut(inputs)
+
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=filters, kernel_size=1, strides=1,
+        data_format=data_format)
+
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+        data_format=data_format, groups=GROUPS)
+
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+        data_format=data_format)
+
+    return inputs + shortcut
+
+def _bottleneck_block_se_v2(inputs, filters, training, projection_shortcut,
+                            strides, data_format):
+    shortcut = inputs
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+
+    # The projection shortcut should come after the first batch norm and ReLU
+    # since it performs a 1x1 convolution.
+    if projection_shortcut is not None:
+        shortcut = projection_shortcut(inputs)
+
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=filters, kernel_size=1, strides=1,
+        data_format=data_format)
+
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+        data_format=data_format)
+
+    inputs = batch_norm(inputs, training, data_format)
+    inputs = tf.nn.relu(inputs)
+    inputs = conv2d_fixed_padding(
+        inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+        data_format=data_format)
+
+    scale = squeeze_excitation(inputs,num_channels=4 * filters,reduction_ratio=REDUCTIONRATIO,data_format=data_format)
+
+    return scale + shortcut
+
 def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
                 training, name, data_format):
     """Creates one layer of blocks for the ResNet model.
@@ -372,7 +493,7 @@ class Model(object):
                 'channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
 
         self.resnet_version = resnet_version
-        if resnet_version not in (1, 2):
+        if resnet_version not in (1, 2, 3,4):
             raise ValueError(
                 'Resnet version should be 1 or 2. See README for citations.')
 
@@ -380,8 +501,12 @@ class Model(object):
         if bottleneck:
             if resnet_version == 1:
                 self.block_fn = _bottleneck_block_v1
-            else:
+            elif resnet_version == 2:
                 self.block_fn = _bottleneck_block_v2
+            elif resnet_version == 3:
+                self.block_fn = _bottleneck_block_xt_v2
+            elif resnet_version == 4:
+                self.block_fn = _bottleneck_block_se_v2
         else:
             if resnet_version == 1:
                 self.block_fn = _building_block_v1
@@ -451,8 +576,9 @@ class Model(object):
 
         return tf.variable_scope('resnet_model',
                                  custom_getter=self._custom_dtype_getter)
-    def get_activate_lt(self):
-        return self.activate_lt
+
+    def get_activate_dict(self):
+        return self.activate_dict
 
     def __call__(self, inputs, training):
         """Add operations to classify a batch of input images.
@@ -463,7 +589,7 @@ class Model(object):
         Returns:
           A logits Tensor with shape [<batch_size>, self.num_classes].
         """
-        self.activate_lt = []
+        self.activate_dict = {}
         with self._model_variable_scope():
             if self.data_format == 'channels_first':
                 # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
@@ -475,7 +601,7 @@ class Model(object):
                 inputs=inputs, filters=self.num_filters, kernel_size=self.kernel_size,
                 strides=self.conv_stride, data_format=self.data_format)
             inputs = tf.identity(inputs, 'initial_conv')
-            self.activate_lt.append(inputs)
+            self.activate_dict["initial_conv"] = inputs
 
             # We do not include batch normalization or activation functions in V2
             # for the initial conv1 because the first ResNet unit will perform these
@@ -493,13 +619,13 @@ class Model(object):
                 inputs = tf.identity(inputs, 'initial_max_pool')
 
             for i, num_blocks in enumerate(self.block_sizes):
-                num_filters = self.num_filters * (2**i)
+                num_filters = self.num_filters * (2 ** i)
                 inputs = block_layer(
                     inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
                     block_fn=self.block_fn, blocks=num_blocks,
                     strides=self.block_strides[i], training=training,
                     name='block_layer{}'.format(i + 1), data_format=self.data_format)
-                self.activate_lt.append(inputs)
+                self.activate_dict["block{}".format(i+1)]=inputs
 
             # Only apply the BN and ReLU for model that does pre_activation in each
             # building/bottleneck block, eg resnet V2.
@@ -522,65 +648,3 @@ class Model(object):
             return inputs
 
 
-_HEIGHT = 32
-_WIDTH = 32
-_NUM_CHANNELS = 3
-_DEFAULT_IMAGE_BYTES = _HEIGHT * _WIDTH * _NUM_CHANNELS
-# The record is the image plus a one-byte label
-_RECORD_BYTES = _DEFAULT_IMAGE_BYTES + 1
-_NUM_CLASSES = 10
-_NUM_DATA_FILES = 5
-
-_NUM_IMAGES = {
-    'train': 50000,
-    'validation': 10000,
-}
-
-DATASET_NAME = 'CIFAR-10'
-_BATCH_NORM_DECAY = 0.997
-_BATCH_NORM_EPSILON = 1e-5
-DEFAULT_VERSION = 2
-DEFAULT_DTYPE = tf.float32
-CASTABLE_TYPES = (tf.float16,)
-ALLOWED_TYPES = (DEFAULT_DTYPE,) + CASTABLE_TYPES
-
-class Cifar10Model(Model):
-    """Model class with appropriate defaults for CIFAR-10 data."""
-
-    def __init__(self, resnet_size, data_format="channels_last", num_classes=_NUM_CLASSES,
-                 resnet_version=DEFAULT_VERSION,
-                 dtype=DEFAULT_DTYPE):
-        """These are the parameters that work for CIFAR-10 data.
-        Args:
-          resnet_size: The number of convolutional layers needed in the model.
-          data_format: Either 'channels_first' or 'channels_last', specifying which
-            data format to use when setting up the model.
-          num_classes: The number of output classes needed from the model. This
-            enables users to extend the same model to their own datasets.
-          resnet_version: Integer representing which version of the ResNet network
-          to use. See README for details. Valid values: [1, 2]
-          dtype: The TensorFlow dtype to use for calculations.
-        Raises:
-          ValueError: if invalid resnet_size is chosen
-        """
-        if resnet_size % 6 != 2:
-            raise ValueError('resnet_size must be 6n + 2:', resnet_size)
-
-        num_blocks = (resnet_size - 2) // 6
-
-        super(Cifar10Model, self).__init__(
-            resnet_size=resnet_size,
-            bottleneck=False,
-            num_classes=num_classes,
-            num_filters=16,
-            kernel_size=3,
-            conv_stride=1,
-            first_pool_size=None,
-            first_pool_stride=None,
-            block_sizes=[2,8,3],
-            block_strides=[1, 2, 2],
-            final_size=64,
-            resnet_version=resnet_version,
-            data_format=data_format,
-            dtype=dtype
-        )

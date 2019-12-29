@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 import Augmentor
 
-conigDir = json.load(open("/home/tmy/programming/picture_classify/config_file/config.json", 'r', encoding='utf-8'))
+conigDir = json.load(open("D://programing//picture_classify//config_file//config.json", 'r', encoding='utf-8'))
 
 
 class Example():
@@ -92,7 +92,7 @@ class Tool():
 
     @staticmethod
     def get_train_jpg_augmentor_tfrecord():
-        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/output"
+        pic_paths = "D://data//raw_jpg_data//train//output"
         img_paths = []
         for name in os.listdir(pic_paths):
             img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[2])))
@@ -116,7 +116,7 @@ class Tool():
 
     @staticmethod
     def get_test_jpg_tfrecord():
-        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/test"
+        pic_paths = "D://data//raw_jpg_data//test"
         img_paths = []
         for name in os.listdir(pic_paths):
             img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[0])))
@@ -207,7 +207,7 @@ class Tool():
 
     @staticmethod
     def get_train_jpg_raw_data():
-        jpg_path = "/home/tmy/programming/picture_classify/data/raw_jpg_data"
+        jpg_path = "D://data//raw_jpg_data"
         out_path = "train"
         if not os.path.exists(jpg_path):
             os.mkdir(jpg_path)
@@ -224,7 +224,7 @@ class Tool():
 
     @staticmethod
     def get_test_jpg_raw_data():
-        jpg_path = "/home/tmy/programming/picture_classify/data/raw_jpg_data"
+        jpg_path = "D://data//raw_jpg_data"
         out_path = "test"
         if not os.path.exists(jpg_path):
             os.mkdir(jpg_path)
@@ -279,5 +279,8 @@ class FeatureWriter(object):
 if __name__ == '__main__':
     # TRAIN = "/home/tmy/programming/picture_classify/data/raw_jpg_data/train"
     # Tool.Augmentor(TRAIN,50*10000)
+    # Tool.get_train_jpg_augmentor_tfrecord()
     Tool.get_train_jpg_augmentor_tfrecord()
+    Tool.get_test_jpg_tfrecord()
 
+    # Tool.Augmentor("D://data//raw_jpg_data//train",50*10000)

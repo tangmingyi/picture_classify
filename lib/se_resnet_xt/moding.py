@@ -169,7 +169,6 @@ class SE_ResNet_Xt():
         :return:
         """
         input_dim = input.shape[-1].value
-        input.get_shape()
         if input_dim % groups != 0:
             raise ValueError('The number of input channels is not divisible '
                              'by the number of channel group. %d %% %d = %d' %

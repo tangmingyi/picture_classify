@@ -16,9 +16,9 @@
 import json
 import os
 from lib.se_resnet_xt.moding import SE_ResNet_Xt
-from lib.ResNet.model import Cifar10Model
-from lib.se_resnet_xt import optimization, myhook
-from lib.se_resnet_xt.myhook import BeholderHook
+from lib.ResNet.model import Model
+from lib.ResNet import optimization,myhook,Loss
+from lib.ResNet.myhook import BeholderHook
 from utility.data_tool import process
 import tensorflow as tf
 import numpy as np
@@ -28,6 +28,7 @@ import numpy as np
 from tensorflow.python import debug as tfdbg
 
 configDir = json.load(open("config_file/config.json", "r", encoding="utf-8"))
+model_config = json.load(open(configDir["mode_config"], 'r', encoding='utf-8'))
 
 
 def file_based_input_fn_builder(input_file, is_training, drop_remainder, batch):
@@ -102,18 +103,36 @@ def input_fn_builder(input_file, is_training, drop_remainder, batch):
     return input_fn
 
 
-def create_model(input, layers, class_dim,is_train):
+def create_model(input,is_train):
     """Creates a classification model."""
     # model = SE_ResNet_Xt(input, layers, class_dim)
     # cls_layers = model.get_cls_layer()
-    activate_lt = None
-    model = Cifar10Model(8)
-    cls_layers = model(input,True)
-    activate_lt = model.get_activate_lt()
-    return cls_layers,activate_lt
+    activate_dict = None
+    # model = Cifar10Model(8)
+    # cls_layers = model(input,True)
+    # activate_dict = model.get_activate_dict()
+    if model_config["model_name"] == "cifar10resnet":
+        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"] == 1,
+                      num_classes=model_config["num_classes"], num_filters=model_config["num_filters"],
+                      kernel_size=model_config["kernel_size"], conv_stride=model_config["conv_stride"],
+                      first_pool_size=model_config["first_pool_size"], first_pool_stride=model_config["first_pool_stride"],
+                      block_sizes=model_config["block_sizes"], block_strides=model_config["block_strides"],
+                      final_size=model_config["final_size"], resnet_version=model_config["resnet_version"],
+                      data_format=model_config["data_format"])
+    else:
+        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"] == 1,
+                      num_classes=model_config["num_classes"], num_filters=model_config["num_filters"],
+                      kernel_size=model_config["kernel_size"], conv_stride=model_config["conv_stride"],
+                      first_pool_size=model_config["first_pool_size"], first_pool_stride=model_config["first_pool_stride"],
+                      block_sizes=model_config["block_sizes"], block_strides=model_config["block_strides"],
+                      final_size=model_config["final_size"], resnet_version=model_config["resnet_version"],
+                      data_format=model_config["data_format"])
+    cls_layers = model(input, True)
+    activate_dict = model.get_activate_dict()
+    return cls_layers, activate_dict
 
 
-def model_fn_builder(lays, class_dim, learning_rate,
+def model_fn_builder(learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu=False
                      ):
     """Returns `model_fn` closure for TPUEstimator."""
@@ -147,27 +166,22 @@ def model_fn_builder(lays, class_dim, learning_rate,
         #     tf.TensorShape(None)
         # ])
         # picture = loopout[2]
-        picture_lt = tf.unstack(picture,num=batch)
+        picture_lt = tf.unstack(picture, num=batch)
         for i in range(len(picture_lt)):
-            picture_lt[i] = tf.image.decode_jpeg(picture_lt[i],channels=3)
+            picture_lt[i] = tf.image.decode_jpeg(picture_lt[i], channels=3)
         picture = tf.stack(picture_lt)
 
         # picture = tf.decode_raw(picture, tf.uint8,name="raw_pic")
         # picture = tf.reshape(picture, [-1, 3, 32, 32])
         # picture = tf.transpose(picture, [0, 2, 3, 1])
 
-
-        picture = tf.cast(picture,tf.float32)
-
-
-
+        picture = tf.cast(picture, tf.float32)
 
         # picture = tf.divide(picture, tf.constant(255, tf.float32))
 
-
-        #图像增强
+        # 图像增强
         if mode == tf.estimator.ModeKeys.TRAIN:
-            pic_summary1 = tf.summary.image("picture_org",picture)
+            pic_summary1 = tf.summary.image("picture_org", picture)
             train_summary_lt.append(pic_summary1)
             # picture = tf.image.image_gradients
             # stand_pic_summary = tf.summary.image("stand_pic",picture)
@@ -201,7 +215,7 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
         label = features["label"]
 
-        cls,activate_lt = create_model(picture, lays, class_dim,mode == tf.estimator.ModeKeys.TRAIN)
+        cls, activate_dict = create_model(picture,mode == tf.estimator.ModeKeys.TRAIN)
 
         tvars = tf.trainable_variables()
 
@@ -217,48 +231,55 @@ def model_fn_builder(lays, class_dim, learning_rate,
 
         output_spec = None
 
-        def compute_loss(logits, positions):
-            one_hot_positions = tf.one_hot(
-                positions, depth=class_dim, dtype=tf.float32)
-            log_probs = tf.nn.log_softmax(logits, axis=-1)
-            probility = tf.reduce_sum(one_hot_positions*tf.nn.softmax(logits,axis=-1),axis=-1)
-            loss = tf.reduce_sum(one_hot_positions * log_probs, axis=-1)
-            return loss,probility
 
-        per_example_loss,per_example_probility = compute_loss(cls, label)
+        per_example_loss, per_example_probility = Loss.prob_CEloss(cls, label,model_config["num_classes"])
         global_step = tf.train.get_or_create_global_step()
 
         if mode == tf.estimator.ModeKeys.TRAIN:
-            per_example_loss_summary = tf.summary.histogram("per_example_loss",per_example_loss)
-            per_example_probility_summary = tf.summary.histogram("per_example_pribility",per_example_probility)
+            train_hook_lt = []
+            per_example_loss_summary = tf.summary.histogram("per_example_loss", -per_example_loss)
+            per_example_probility_summary = tf.summary.histogram("per_example_pribility", per_example_probility)
             train_summary_lt.append(per_example_loss_summary)
             train_summary_lt.append(per_example_probility_summary)
-            total_loss = -tf.reduce_mean(per_example_loss, axis=-1)
+            if configDir["loss_name"] == "GHM":
+                loss_config = configDir["GHM_loss_config"]
+                total_loss,weight = Loss.GHMLoss(-per_example_loss,loss_config["bin"],loss_config["step_length"],batch)
+                train_summary_lt.append(tf.summary.histogram("loss_weight",weight))
+            elif configDir["loss_name"] == "focal":
+                loss_config = configDir["focal_loss_config"]
+                total_loss,weight = Loss.multi_category_focal_loss1(label,per_example_probility,loss_config["gamma"])
+                train_summary_lt.append(tf.summary.histogram("loss_weight",weight))
+            else:
+                total_loss = -tf.reduce_mean(per_example_loss, axis=-1)
             # total_loss = tf.losses.softmax_cross_entropy(tf.one_hot(label,depth=class_dim),cls)
 
-            train_op = optimization.create_optimizer(
-                total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
-            # train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
-            #                                        ,global_step=global_step).minimize(total_loss,global_step=global_step)
+            # train_op = optimization.create_optimizer(
+            #     total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
+            train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
+                                                   ,global_step=global_step).minimize(total_loss,global_step=global_step)
             # decay_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,global_step=global_step,decay_steps=configDir["decay_steps"],decay_rate=configDir["decay_rate"])
             # learning_rate_summary = tf.summary.scalar("decay_learning_rate",decay_learning_rate)
             # train_op = tf.train.GradientDescentOptimizer(decay_learning_rate).minimize(total_loss,global_step=global_step)
-            summary_hook = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"]
-                                                      ,summary_op=train_summary_lt)
+            summary_hook = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],
+                                                     output_dir=configDir["model_dir"]
+                                                     , summary_op=train_summary_lt)
+            train_hook_lt.append(summary_hook)
 
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
-                loss=total_loss,
+                loss= -tf.reduce_mean(per_example_loss, axis=-1),
                 train_op=train_op,
                 export_outputs=None,
                 training_chief_hooks=None,
-                training_hooks=[summary_hook]
+                training_hooks=train_hook_lt
                 # evalute_hook(handle=handle,feed_handle=test_handle, run_op=total_loss, evl_step=10),
                 # train_hook(handle,train_handle)
                 # ],
 
             )
         elif mode == tf.estimator.ModeKeys.EVAL:
+            eval_hook_lt = []
+
             def metric_fn(per_example_loss, label, logits):
                 predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
                 accuracy = tf.metrics.accuracy(
@@ -268,29 +289,37 @@ def model_fn_builder(lays, class_dim, learning_rate,
                     "eval_accuracy": accuracy,
                     # "eval_loss": loss,
                 }
-            beholder_hook = BeholderHook(configDir["model_dir"],[picture]+activate_lt,np.ndarray([32,32,3]))
-            pic_summary = tf.summary.image("val_picture_org",picture)
-            per_example_loss_summary = tf.summary.histogram("val_per_example_loss",per_example_loss)
-            per_example_probility_summary = tf.summary.histogram("val_per_example_pribility",per_example_probility)
+
+            if configDir["beholder"] == 1:
+                activate_lt = []
+                for name, v in activate_dict.items():
+                    activate_lt.append(v)
+                beholder_hook = BeholderHook(configDir["model_dir"], [picture] + activate_lt, np.ndarray([32, 32, 3]))
+                eval_hook_lt.append(beholder_hook)
+            pic_summary = tf.summary.image("val_picture_org", picture)
+            per_example_loss_summary = tf.summary.histogram("val_per_example_loss", per_example_loss)
+            per_example_probility_summary = tf.summary.histogram("val_per_example_pribility", per_example_probility)
             val_summary_lt.append(pic_summary)
             val_summary_lt.append(per_example_probility_summary)
             val_summary_lt.append(per_example_loss_summary)
+            eval_hook_lt.append(tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],
+                                                          output_dir=configDir["model_dir"]
+                                                          , summary_op=val_summary_lt))
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
                 loss=-tf.reduce_mean(per_example_loss, axis=-1),
                 eval_metric_ops=metric_fn(per_example_loss, label, cls),
                 scaffold=scaffold_fn,
-                evaluation_hooks=[tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"]
-                                                           ,summary_op=val_summary_lt),beholder_hook]
+                evaluation_hooks=eval_hook_lt
             )
 
         elif mode == tf.estimator.ModeKeys.PREDICT:
             predictions = {
                 "unique_ids": unids,
                 "predict": tf.arg_max(cls, -1),
-                "logits":tf.arg_max(tf.nn.softmax(cls,-1),-1),
+                "logits": tf.arg_max(tf.nn.softmax(cls, -1), -1),
                 "label": label,
-                "softmax":tf.nn.softmax(cls,-1)
+                "softmax": tf.nn.softmax(cls, -1)
             }
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode, predictions=predictions, scaffold=scaffold_fn)
@@ -327,8 +356,8 @@ def main(_):
             train_examples / configDir["train_batch_size"] * configDir["num_train_epochs"])
         num_warmup_steps = int(num_train_steps * configDir["warmup_proportion"])
 
-    model_fn = model_fn_builder(lays=configDir["SeResnetXt_layers"], class_dim=configDir["class_dim"],
-                                learning_rate=configDir["learning_rate"], num_train_steps=num_train_steps,
+    model_fn = model_fn_builder(
+            learning_rate=configDir["learning_rate"], num_train_steps=num_train_steps,
                                 num_warmup_steps=num_warmup_steps)
 
     estimator = tf.estimator.Estimator(
@@ -352,6 +381,15 @@ def main(_):
         return 0
 
     if configDir["do_train"] == 1:
+        trainHookLt = []
+        evalHookLt = []
+        if configDir["debug"] == 1:
+            debug_config = configDir["debug_config"]
+            if debug_config["tfdbg"] == 1:
+                trainHookLt.append(tfdbg.LocalCLIDebugHook())
+            elif configDir["tfdbgtensorboard"] == 1:
+                trainHookLt.append(tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"))
+
         input_files = [os.path.join(configDir["train_input"], name) for name in
                        os.listdir(configDir["train_input"])]
         train_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=True, drop_remainder=True,
@@ -362,14 +400,10 @@ def main(_):
         # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
         val_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=True,
                                                    batch="eval_batch_size")
-        trainSpecHook = [tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111")]
-        trainSpec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps, hooks=None)
+        trainSpec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps, hooks=trainHookLt)
         valSpec = tf.estimator.EvalSpec(input_fn=val_input_fn, steps=configDir["trainStepVal"],
-                                        throttle_secs=configDir["throttle_secs"],hooks=None)
+                                        throttle_secs=configDir["throttle_secs"], hooks=evalHookLt)
         tf.estimator.train_and_evaluate(estimator=estimator, train_spec=trainSpec, eval_spec=valSpec)
-        # estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
-        # ,hooks=[tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
-        #        myhook.timeline_hook(with_one_timeline=True)])
 
     if configDir["do_test"] == 1:
 
@@ -385,9 +419,9 @@ def main(_):
         wf = open(configDir["test_res_output"], "w", encoding="utf-8")
         for mm, result in enumerate(estimator.predict(
                 predict_input_fn, yield_single_examples=True
-                ,hooks=[
-                        # tfdbg.LocalCLIDebugHook(),
-                        # tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
+                , hooks=[
+                    # tfdbg.LocalCLIDebugHook(),
+                    # tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
                 ]
         )):
             # if len(all_results) % 1000 == 0:
