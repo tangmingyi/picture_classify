@@ -1,19 +1,19 @@
 import tensorflow as tf
-def focal_loss1(y_true,y_pred,gamma=2.0):
-
-    # alpha = tf.constant(alpha, dtype=tf.float32)
-    #alpha = tf.constant([[1],[1],[1],[1],[1]], dtype=tf.float32)
-    #alpha = tf.constant_initializer(alpha)
+def focal_loss1(y_true,logits,gamma=2.0):
+    """
+    L_focal = (1-p)^/alph * log(p)
+    :param y_true: onehot
+    :param logits:
+    :param gamma:
+    :return:
+    """
     gamma = float(gamma)
-    epsilon = 1.e-7
     y_true = tf.cast(y_true, tf.float32)
-    # y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
-    y_t = tf.multiply(y_true, y_pred) + tf.multiply(1-y_true, 1-y_pred)
-    ce = -tf.log(y_t)
-    weight = tf.pow(tf.subtract(1., y_t), gamma)
-    fl = tf.multiply(weight, ce)
-    loss = tf.reduce_mean(fl)
-    return loss,weight
+    probility = tf.reduce_sum(tf.nn.softmax(logits, axis=-1)*y_true,axis=-1)
+    weight = tf.pow(tf.subtract(tf.ones(tf.shape(probility),dtype=tf.float32), probility), gamma)
+    probility = tf.clip_by_value(probility, 1e-8, 1.0) #防止log的输入为负值，因此进行裁剪
+    loss = tf.reduce_mean(weight*(tf.log(probility)))
+    return -loss,weight
 
 def GHMLoss(per_example_loss, bin, step_length, batch):
     edges = [step_length * i for i in range(bin + 1)]

@@ -1,4 +1,6 @@
 {
+  "model_name": "lib/ResNet",
+  "version": 1,
   "resnet_size": 0,
   "bottleneck": 1,
   "num_classes": 10,

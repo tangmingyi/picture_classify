@@ -30,9 +30,13 @@ from __future__ import print_function
 
 import tensorflow as tf
 import json
+import os
 
+project_path = os.getcwd()
 model_config = json.load(
-    open(json.load(open("config_file/config.json", 'r', encoding='utf-8'))["mode_config"], 'r', encoding='utf-8'))
+    open(os.path.join(project_path,
+                      json.load(open(os.path.join(project_path, "config_file/config.json"), 'r', encoding='utf-8'))[
+                          "mode_config"]), 'r', encoding='utf-8'))
 
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
@@ -82,17 +86,18 @@ def fixed_padding(inputs, kernel_size, data_format):
                                         [pad_beg, pad_end], [0, 0]])
     return padded_inputs
 
+
 def squeeze_excitation(
-                       input,
-                       num_channels,
-                       reduction_ratio,
-                        data_format,
-                       name=None):
+        input,
+        num_channels,
+        reduction_ratio,
+        data_format,
+        name=None):
     if data_format == "channels_last":
-        axis = [1,2]
+        axis = [1, 2]
     else:
-        axis = [2,3]
-    pool = tf.reduce_mean(input,axis=axis,keepdims=False)
+        axis = [2, 3]
+    pool = tf.reduce_mean(input, axis=axis, keepdims=False)
     stdv = tf.divide(tf.constant(1, tf.float32), tf.sqrt(tf.cast(pool.shape[1], tf.float32)))
     squeeze = tf.layers.dense(inputs=pool, units=num_channels // reduction_ratio,
                               kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv))
@@ -102,9 +107,9 @@ def squeeze_excitation(
                                  kernel_initializer=tf.initializers.random_uniform(minval=-stdv, maxval=stdv),
                                  activation=tf.nn.sigmoid)
     if data_format == "channels_last":
-        excitation = tf.expand_dims(tf.expand_dims(excitation,axis=1),axis=1)
+        excitation = tf.expand_dims(tf.expand_dims(excitation, axis=1), axis=1)
     else:
-        excitation = tf.expand_dims(tf.expand_dims(excitation,axis=-1),axis=-1)
+        excitation = tf.expand_dims(tf.expand_dims(excitation, axis=-1), axis=-1)
 
     scale = tf.multiply(x=input, y=excitation)
     return scale
@@ -350,7 +355,7 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
 
 
 def _bottleneck_block_xt_v2(inputs, filters, training, projection_shortcut,
-                                                        strides, data_format):
+                            strides, data_format):
     shortcut = inputs
     inputs = batch_norm(inputs, training, data_format)
     inputs = tf.nn.relu(inputs)
@@ -377,6 +382,7 @@ def _bottleneck_block_xt_v2(inputs, filters, training, projection_shortcut,
         data_format=data_format)
 
     return inputs + shortcut
+
 
 def _bottleneck_block_se_v2(inputs, filters, training, projection_shortcut,
                             strides, data_format):
@@ -405,9 +411,11 @@ def _bottleneck_block_se_v2(inputs, filters, training, projection_shortcut,
         inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
         data_format=data_format)
 
-    scale = squeeze_excitation(inputs,num_channels=4 * filters,reduction_ratio=REDUCTIONRATIO,data_format=data_format)
+    scale = squeeze_excitation(inputs, num_channels=4 * filters, reduction_ratio=REDUCTIONRATIO,
+                               data_format=data_format)
 
     return scale + shortcut
+
 
 def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
                 training, name, data_format):
@@ -493,7 +501,7 @@ class Model(object):
                 'channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
 
         self.resnet_version = resnet_version
-        if resnet_version not in (1, 2, 3,4):
+        if resnet_version not in (1, 2, 3, 4):
             raise ValueError(
                 'Resnet version should be 1 or 2. See README for citations.')
 
@@ -625,7 +633,7 @@ class Model(object):
                     block_fn=self.block_fn, blocks=num_blocks,
                     strides=self.block_strides[i], training=training,
                     name='block_layer{}'.format(i + 1), data_format=self.data_format)
-                self.activate_dict["block{}".format(i+1)]=inputs
+                self.activate_dict["block{}".format(i + 1)] = inputs
 
             # Only apply the BN and ReLU for model that does pre_activation in each
             # building/bottleneck block, eg resnet V2.
@@ -646,5 +654,3 @@ class Model(object):
             inputs = tf.layers.dense(inputs=inputs, units=self.num_classes)
             inputs = tf.identity(inputs, 'final_dense')
             return inputs
-
-

@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 import Augmentor
 
-conigDir = json.load(open("D://programing//picture_classify//config_file//config.json", 'r', encoding='utf-8'))
+conigDir = json.load(open(os.path.join("../../config_file/config.json"), 'r', encoding='utf-8'))
 
 
 class Example():
@@ -68,7 +68,9 @@ class Tool():
 
     @staticmethod
     def get_train_jpg_tfrecord():
-        pic_paths = "/home/tmy/programming/picture_classify/data/raw_jpg_data/train"
+        pic_paths = "/home/tangmy/data/raw_jpg_data/train"
+        if not os.path.exists(os.path.join("../../", conigDir["DP"], "train_jpg")):
+            os.makedirs(os.path.join("../../", conigDir["DP"], "train_jpg"))
         img_paths = []
         for name in os.listdir(pic_paths):
             img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[0])))
@@ -116,7 +118,9 @@ class Tool():
 
     @staticmethod
     def get_test_jpg_tfrecord():
-        pic_paths = "D://data//raw_jpg_data//test"
+        pic_paths = "/home/tangmy/data/raw_jpg_data/test"
+        if not os.path.exists(os.path.join("../../", conigDir["DP"], "test_jpg")):
+            os.makedirs(os.path.join("../../", conigDir["DP"], "test_jpg"))
         img_paths = []
         for name in os.listdir(pic_paths):
             img_paths.append((os.path.join(pic_paths,name),int(name.split("_")[0])))
@@ -207,12 +211,9 @@ class Tool():
 
     @staticmethod
     def get_train_jpg_raw_data():
-        jpg_path = "D://data//raw_jpg_data"
+        jpg_path = "/home/tangmy/data/raw_jpg_data"
         out_path = "train"
-        if not os.path.exists(jpg_path):
-            os.mkdir(jpg_path)
-        if not os.path.exists(os.path.join(jpg_path,out_path)):
-            os.mkdir(os.path.join(jpg_path,out_path))
+        os.makedirs(os.path.join(jpg_path,out_path))
         for i in range(1, 6):
             path = os.path.join(conigDir["PD"], "data_batch_{}".format(i))
             dataDir = Tool.get_raw_data(path)
@@ -224,12 +225,9 @@ class Tool():
 
     @staticmethod
     def get_test_jpg_raw_data():
-        jpg_path = "D://data//raw_jpg_data"
+        jpg_path = "/home/tangmy/data/raw_jpg_data"
         out_path = "test"
-        if not os.path.exists(jpg_path):
-            os.mkdir(jpg_path)
-        if not os.path.exists(os.path.join(jpg_path,out_path)):
-            os.mkdir(os.path.join(jpg_path,out_path))
+        os.makedirs(os.path.join(jpg_path,out_path))
         path = os.path.join(conigDir["PD"], "test_batch")
         dataDir = Tool.get_raw_data(path)
         datas = dataDir[b'data']
@@ -277,10 +275,12 @@ class FeatureWriter(object):
 
 
 if __name__ == '__main__':
-    # TRAIN = "/home/tmy/programming/picture_classify/data/raw_jpg_data/train"
+    # TRAIN = "/home/tangmy/data/raw_jpg_data/train"
     # Tool.Augmentor(TRAIN,50*10000)
-    # Tool.get_train_jpg_augmentor_tfrecord()
-    Tool.get_train_jpg_augmentor_tfrecord()
     Tool.get_test_jpg_tfrecord()
+    # Tool.get_train_jpg_augmentor_tfrecord()
+    # Tool.get_train_jpg_augmentor_tfrecord()
+    # Tool.get_test_jpg_tfrecord()
+    # Tool.get_test_jpg_raw_data()
 
     # Tool.Augmentor("D://data//raw_jpg_data//train",50*10000)

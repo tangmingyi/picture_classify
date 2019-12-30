@@ -1,10 +1,10 @@
 {
-  "PD": "D://data//cifar-10-batches-py",
+  "PD": "/home/tangmy/data/cifar-10-batches-py",
   "DP": "data/tf_record",
-  "model_dir": "result/model/checkpoint/resnet_focal",
-  "train_input": "D://programing//picture_classify//data//tf_record//train_augmentor",
-  "val_input": "D://programing//picture_classify//data//tf_record//test_jpg",
-  "predict_input": "D://programing//picture_classify//data//tf_record//test_jpg",
+  "model_dir": "result/model/checkpoint/resnet_focal_temp1",
+  "train_input": "data/tf_record/train_jpg",
+  "val_input": "data/tf_record/test_jpg",
+  "predict_input": "data/tf_record/test_jpg",
   "save_summary_steps": 300,
   "save_checkpoints_steps": 3000,
   "keep_checkpoint_max": 5,
@@ -36,7 +36,7 @@
   "saturation_low": 0,
   "saturation_up": 5,
 
-  "learning_rate": 1e-3,
+  "learning_rate": 5e-4,
   "decay_steps":10000,
   "decay_rate":0.9,
 
@@ -49,7 +49,7 @@
   },
 
 
-  "mode_config": "D://programing//picture_classify//config_file//cifar10modelresnet.json",
+  "mode_config": "config_file/resnet_xt_config.json",
 
   "loss_name": "focal",
   "focal_loss_config":{"gamma": 2},

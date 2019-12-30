@@ -1,25 +1,13 @@
-# coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Run BERT on SQuAD 1.1 and SQuAD 2.0."""
+"""
+todo: add mixup blinear dcl constract
+"""
 import json
 import os
 from lib.se_resnet_xt.moding import SE_ResNet_Xt
 from lib.ResNet.model import Model
 from lib.ResNet import optimization,myhook,Loss
 from lib.ResNet.myhook import BeholderHook
-from utility.data_tool import process
+# from utility.data_tool import process
 import tensorflow as tf
 import numpy as np
 # from tensorboard.plugins.beholder import BeholderHook
@@ -111,7 +99,7 @@ def create_model(input,is_train):
     # model = Cifar10Model(8)
     # cls_layers = model(input,True)
     # activate_dict = model.get_activate_dict()
-    if model_config["model_name"] == "cifar10resnet":
+    if model_config["model_name"] == "lib/ResNet":
         model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"] == 1,
                       num_classes=model_config["num_classes"], num_filters=model_config["num_filters"],
                       kernel_size=model_config["kernel_size"], conv_stride=model_config["conv_stride"],
@@ -247,16 +235,16 @@ def model_fn_builder(learning_rate,
                 train_summary_lt.append(tf.summary.histogram("loss_weight",weight))
             elif configDir["loss_name"] == "focal":
                 loss_config = configDir["focal_loss_config"]
-                total_loss,weight = Loss.multi_category_focal_loss1(label,per_example_probility,loss_config["gamma"])
+                total_loss,weight = Loss.focal_loss1(tf.one_hot(label,depth=model_config["num_classes"]),cls,loss_config["gamma"])
                 train_summary_lt.append(tf.summary.histogram("loss_weight",weight))
             else:
                 total_loss = -tf.reduce_mean(per_example_loss, axis=-1)
             # total_loss = tf.losses.softmax_cross_entropy(tf.one_hot(label,depth=class_dim),cls)
 
-            # train_op = optimization.create_optimizer(
-            #     total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
-            train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
-                                                   ,global_step=global_step).minimize(total_loss,global_step=global_step)
+            train_op = optimization.create_optimizer(
+                total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu, -1)
+            # train_op = tf.train.AdagradDAOptimizer(learning_rate=configDir["learning_rate"]
+            #                                        ,global_step=global_step).minimize(total_loss,global_step=global_step)
             # decay_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,global_step=global_step,decay_steps=configDir["decay_steps"],decay_rate=configDir["decay_rate"])
             # learning_rate_summary = tf.summary.scalar("decay_learning_rate",decay_learning_rate)
             # train_op = tf.train.GradientDescentOptimizer(decay_learning_rate).minimize(total_loss,global_step=global_step)
@@ -351,7 +339,7 @@ def main(_):
     num_train_steps = None
     num_warmup_steps = None
     if configDir["do_train"] == 1:
-        train_examples = process.Tool.get_total_example_num()
+        train_examples = len(os.listdir(configDir["train_input"])) * 1000
         num_train_steps = int(
             train_examples / configDir["train_batch_size"] * configDir["num_train_epochs"])
         num_warmup_steps = int(num_train_steps * configDir["warmup_proportion"])
