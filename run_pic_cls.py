@@ -21,11 +21,12 @@ model_config = json.load(open(configDir["mode_config"], 'r', encoding='utf-8'))
 
 def file_based_input_fn_builder(input_file, is_training, drop_remainder, batch):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
+    input_file = [os.path.join(input_file, name) for name in os.listdir(input_file)]
     name_to_features = {
         "unid": tf.FixedLenFeature([], tf.int64),
         "image/encoded": tf.FixedLenFeature([], tf.string),
         "label": tf.FixedLenFeature([], tf.int64),
+        "name": tf.FixedLenFeature([],tf.string)
     }
 
     def _decode_record(record, name_to_features):
@@ -156,7 +157,8 @@ def model_fn_builder(learning_rate,
         # picture = loopout[2]
         picture_lt = tf.unstack(picture, num=batch)
         for i in range(len(picture_lt)):
-            picture_lt[i] = tf.image.decode_jpeg(picture_lt[i], channels=3)
+            image = tf.image.decode_jpeg(picture_lt[i], channels=3)
+            picture_lt[i] = tf.image.per_image_standardization(image)
         picture = tf.stack(picture_lt)
 
         # picture = tf.decode_raw(picture, tf.uint8,name="raw_pic")
@@ -179,27 +181,6 @@ def model_fn_builder(learning_rate,
 
             picture = tf.image.random_flip_left_right(picture)
             picture = tf.image.random_flip_up_down(picture)
-            # picture = tf.image.random_saturation(picture,configDir["hue_max_delta"],configDir["saturation_low"],configDir["saturation_up"])
-            # picture = tf.image.random_hue(picture,configDir["hue_max_delta"])
-            # picture = tf.image.random_brightness(picture,configDir["bright_max_delta"])
-            # picture = tf.image.random_contrast(picture,configDir["contrast_lower"],configDir["contrast_up"])
-
-            # picture = tf.image.resize_image_with_crop_or_pad(
-            #     picture, 32 + 8, 32 + 8)
-            #
-            # # Randomly crop a [_HEIGHT, _WIDTH] section of the image.
-            # picture = tf.random_crop(picture, [-1,32, 32, 3])
-            #
-            # # Randomly flip the image horizontally.
-            # picture = tf.image.random_flip_left_right(picture)
-            #
-            # # Subtract off the mean and divide by the variance of the pixels.
-            # picture = tf.map_fn(tf.image.per_image_standardization,picture)
-            #
-            # pic_summary2 = tf.summary.image("picture_enhancement",picture)
-            # train_summary_lt.append(pic_summary2)
-
-            # summary_hook2 = tf.train.SummarySaverHook(save_steps=configDir["save_summary_steps"],output_dir=configDir["model_dir"],summary_op=pic_summary2)
 
         label = features["label"]
 
@@ -305,9 +286,10 @@ def model_fn_builder(learning_rate,
             predictions = {
                 "unique_ids": unids,
                 "predict": tf.arg_max(cls, -1),
-                "logits": tf.arg_max(tf.nn.softmax(cls, -1), -1),
+                # "logits": tf.arg_max(tf.nn.softmax(cls, -1), -1),
                 "label": label,
-                "softmax": tf.nn.softmax(cls, -1)
+                "category_probility": tf.nn.softmax(cls,-1),
+                "path": features["name"]
             }
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode, predictions=predictions, scaffold=scaffold_fn)
@@ -378,15 +360,11 @@ def main(_):
             elif configDir["tfdbgtensorboard"] == 1:
                 trainHookLt.append(tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"))
 
-        input_files = [os.path.join(configDir["train_input"], name) for name in
-                       os.listdir(configDir["train_input"])]
-        train_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=True, drop_remainder=True,
+        train_input_fn = file_based_input_fn_builder(input_file=configDir["train_input"], is_training=True, drop_remainder=True,
                                                      batch="train_batch_size")
 
-        input_files = [os.path.join(configDir["val_input"], name) for name in
-                       os.listdir(configDir["val_input"])]
         # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
-        val_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=True,
+        val_input_fn = file_based_input_fn_builder(input_file=configDir["val_input"], is_training=False, drop_remainder=True,
                                                    batch="eval_batch_size")
         trainSpec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps, hooks=trainHookLt)
         valSpec = tf.estimator.EvalSpec(input_fn=val_input_fn, steps=configDir["trainStepVal"],
@@ -398,10 +376,8 @@ def main(_):
         tf.logging.info("***** Running predictions *****")
         tf.logging.info("  Batch size = %d", configDir["test_batch_size"])
 
-        input_files = [os.path.join(configDir["predict_input"], name) for name in
-                       os.listdir(configDir["predict_input"])]
         # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
-        predict_input_fn = file_based_input_fn_builder(input_file=input_files, is_training=False, drop_remainder=False,
+        predict_input_fn = file_based_input_fn_builder(input_file=configDir["predict_input"], is_training=False, drop_remainder=True,
                                                        batch="predict_batch_size")
 
         wf = open(configDir["test_res_output"], "w", encoding="utf-8")
@@ -418,7 +394,9 @@ def main(_):
             example_id = result["unique_ids"]
             predict = result["predict"]
             label = result["label"]
-            wf.write("{}\t{}\t{}\n".format(example_id, predict, label))
+            category_probility = "_".join([str(i) for i in result["category_probility"].tolist()])
+            path = result["path"].decode('utf-8')
+            wf.write("{}\t{}\t{}\t{}\t{}\n".format(example_id, predict, label,category_probility,path))
         wf.close()
 
 
