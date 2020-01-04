@@ -1,7 +1,7 @@
 {
   "PD": "/home/tangmy/data/cifar-10-batches-py",
   "DP": "data/tf_record",
-  "model_dir": "result/model/checkpoint/resnet_focal_temp1",
+  "model_dir": "result/model/checkpoint/resnet_focal_resize128",
   "train_input": "data/tf_record/train_jpg",
   "val_input": "data/tf_record/test_jpg",
   "predict_input": "data/tf_record/test_jpg",
@@ -9,17 +9,24 @@
   "save_checkpoints_steps": 3000,
   "keep_checkpoint_max": 5,
   "print_loss_steps": 100,
+  "resize": 128,
 
-  "do_train": 1,
+  "do_train": true,
   "train_batch_size": 32,
+  "val_batch_size": 128,
   "num_train_epochs": 300,
 
-  "do_val": 0,
-  "val_batch_size": 128,
-
-  "do_test": 0,
-  "test_batch_size": 1000,
+  "do_test": false,
+  "test_batch_size": 128,
   "test_res_output": "result/predict.txt",
+
+  "do_save_conv_image": false,
+  "conv_image_path": "result/conv_image",
+
+  "grad_cam": true,
+  "layer_name": "block4",
+
+
 
   "warmup_proportion": 0.1,
 
@@ -40,12 +47,12 @@
   "decay_steps":10000,
   "decay_rate":0.9,
 
-  "beholder": 0,
+  "beholder": false,
 
-  "debug": 0,
+  "debug": false,
   "debug_config": {
-    "tfdbg": 1,
-    "tfdbgtensorboard": 0
+    "tfdbg": true,
+    "tfdbgtensorboard": false
   },
 
 

@@ -1,9 +1,9 @@
 """
 todo: add mixup blinear dcl constract
+doing: 卷积特征图可视化
 """
 import json
 import os
-from lib.se_resnet_xt.moding import SE_ResNet_Xt
 from lib.ResNet.model import Model
 from lib.ResNet import optimization,myhook,Loss
 from lib.ResNet.myhook import BeholderHook
@@ -11,12 +11,20 @@ from lib.ResNet.myhook import BeholderHook
 import tensorflow as tf
 import numpy as np
 # from tensorboard.plugins.beholder import BeholderHook
+import cv2
+import matplotlib.pyplot as plt
 
 
 from tensorflow.python import debug as tfdbg
 
 configDir = json.load(open("config_file/config.json", "r", encoding="utf-8"))
 model_config = json.load(open(configDir["mode_config"], 'r', encoding='utf-8'))
+
+if configDir["do_save_conv_image"]:
+    configDir["test_batch_size"] = 1
+
+if not configDir["do_test"]:
+    configDir["do_save_conv_image"] = False
 
 
 def file_based_input_fn_builder(input_file, is_training, drop_remainder, batch):
@@ -94,14 +102,9 @@ def input_fn_builder(input_file, is_training, drop_remainder, batch):
 
 def create_model(input,is_train):
     """Creates a classification model."""
-    # model = SE_ResNet_Xt(input, layers, class_dim)
-    # cls_layers = model.get_cls_layer()
     activate_dict = None
-    # model = Cifar10Model(8)
-    # cls_layers = model(input,True)
-    # activate_dict = model.get_activate_dict()
     if model_config["model_name"] == "lib/ResNet":
-        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"] == 1,
+        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"],
                       num_classes=model_config["num_classes"], num_filters=model_config["num_filters"],
                       kernel_size=model_config["kernel_size"], conv_stride=model_config["conv_stride"],
                       first_pool_size=model_config["first_pool_size"], first_pool_stride=model_config["first_pool_stride"],
@@ -109,7 +112,7 @@ def create_model(input,is_train):
                       final_size=model_config["final_size"], resnet_version=model_config["resnet_version"],
                       data_format=model_config["data_format"])
     else:
-        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"] == 1,
+        model = Model(resnet_size=model_config["resnet_size"], bottleneck=model_config["bottleneck"],
                       num_classes=model_config["num_classes"], num_filters=model_config["num_filters"],
                       kernel_size=model_config["kernel_size"], conv_stride=model_config["conv_stride"],
                       first_pool_size=model_config["first_pool_size"], first_pool_stride=model_config["first_pool_stride"],
@@ -143,41 +146,29 @@ def model_fn_builder(learning_rate,
         else:
             batch = params["predict_batch_size"]
 
-        # def body(i,input_img,out_img):
-        #     image = tf.expand_dims(tf.image.decode_jpeg(input_img[i],channels=3),0)
-        #     out_img = tf.cond(tf.equal(i,0),lambda :image,lambda :tf.concat([out_img,image],0))
-        #     return i+1,input_img,out_img
-        # i = tf.constant(0)
-        # out_pic = tf.zeros([1,32,32,3],dtype=tf.uint8)
-        # loopout = tf.while_loop(lambda i,picture,out_pic:tf.less(i,batch),body,[i,picture,out_pic],shape_invariants=[
-        #     i.get_shape(),
-        #     picture.get_shape(),
-        #     tf.TensorShape(None)
-        # ])
-        # picture = loopout[2]
+
         picture_lt = tf.unstack(picture, num=batch)
+        if configDir["grad_cam"]:
+            organ_image = []
         for i in range(len(picture_lt)):
             image = tf.image.decode_jpeg(picture_lt[i], channels=3)
+            image = tf.image.resize_images(image,[configDir["resize"],configDir["resize"]])
+            if configDir["grad_cam"]:
+                organ_image.append(image)
             picture_lt[i] = tf.image.per_image_standardization(image)
         picture = tf.stack(picture_lt)
+        if configDir["grad_cam"]:
+            organ_image = tf.stack(organ_image)
 
-        # picture = tf.decode_raw(picture, tf.uint8,name="raw_pic")
-        # picture = tf.reshape(picture, [-1, 3, 32, 32])
-        # picture = tf.transpose(picture, [0, 2, 3, 1])
 
         picture = tf.cast(picture, tf.float32)
 
-        # picture = tf.divide(picture, tf.constant(255, tf.float32))
 
         # 图像增强
         if mode == tf.estimator.ModeKeys.TRAIN:
             pic_summary1 = tf.summary.image("picture_org", picture)
             train_summary_lt.append(pic_summary1)
-            # picture = tf.image.image_gradients
-            # stand_pic_summary = tf.summary.image("stand_pic",picture)
 
-            # picture = picture + 5.0*tf.random_normal(shape=[32,32,3],mean=0,stddev=0.1)
-            # nosiy_pic_summary = tf.summary.image("nosiy_pic",picture)
 
             picture = tf.image.random_flip_left_right(picture)
             picture = tf.image.random_flip_up_down(picture)
@@ -259,7 +250,7 @@ def model_fn_builder(learning_rate,
                     # "eval_loss": loss,
                 }
 
-            if configDir["beholder"] == 1:
+            if configDir["beholder"]:
                 activate_lt = []
                 for name, v in activate_dict.items():
                     activate_lt.append(v)
@@ -291,6 +282,31 @@ def model_fn_builder(learning_rate,
                 "category_probility": tf.nn.softmax(cls,-1),
                 "path": features["name"]
             }
+            if configDir["do_save_conv_image"]:
+                for k,v in activate_dict.items():
+                    predictions[k] = v
+
+            if configDir["grad_cam"]:
+                def grad_cam(conv_layer,loss):
+                    grads = tf.gradients(loss,conv_layer)[0]
+                    norm_grads = tf.nn.l2_normalize(grads,axis=[1,2,3])
+                    if model_config["data_format"] == "channels_first":
+                        axis = [2,3]
+                        axis1 = 1
+                    else:
+                        axis = [1,2]
+                        axis1 = -1
+                    weight = tf.reduce_mean(norm_grads,axis=axis,keepdims=True)
+                    cams = conv_layer * weight
+                    cams = tf.reduce_sum(cams,axis1,keepdims=False)
+                    cams = tf.nn.relu(cams)
+                    return cams
+
+                conv_layer = activate_dict[configDir["layer_name"]]
+                cam = grad_cam(conv_layer,per_example_probility)
+                predictions["cam"] = cam
+                predictions["image"] = organ_image
+
             output_spec = tf.estimator.EstimatorSpec(
                 mode=mode, predictions=predictions, scaffold=scaffold_fn)
         else:
@@ -320,7 +336,7 @@ def main(_):
 
     num_train_steps = None
     num_warmup_steps = None
-    if configDir["do_train"] == 1:
+    if configDir["do_train"] :
         train_examples = len(os.listdir(configDir["train_input"])) * 1000
         num_train_steps = int(
             train_examples / configDir["train_batch_size"] * configDir["num_train_epochs"])
@@ -350,14 +366,14 @@ def main(_):
                                     strip_default_attrs=True)
         return 0
 
-    if configDir["do_train"] == 1:
+    if configDir["do_train"]:
         trainHookLt = []
         evalHookLt = []
-        if configDir["debug"] == 1:
+        if configDir["debug"]:
             debug_config = configDir["debug_config"]
-            if debug_config["tfdbg"] == 1:
+            if debug_config["tfdbg"]:
                 trainHookLt.append(tfdbg.LocalCLIDebugHook())
-            elif configDir["tfdbgtensorboard"] == 1:
+            elif configDir["tfdbgtensorboard"]:
                 trainHookLt.append(tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"))
 
         train_input_fn = file_based_input_fn_builder(input_file=configDir["train_input"], is_training=True, drop_remainder=True,
@@ -371,7 +387,13 @@ def main(_):
                                         throttle_secs=configDir["throttle_secs"], hooks=evalHookLt)
         tf.estimator.train_and_evaluate(estimator=estimator, train_spec=trainSpec, eval_spec=valSpec)
 
-    if configDir["do_test"] == 1:
+    if configDir["do_test"]:
+        def filter_conv_image(predict_dic):
+            image = {}
+            for k,v in predict_dic.items():
+                if k.find("conv") != -1 or k.find("block") != -1:
+                    image[k] = v
+            return image
 
         tf.logging.info("***** Running predictions *****")
         tf.logging.info("  Batch size = %d", configDir["test_batch_size"])
@@ -388,15 +410,43 @@ def main(_):
                     # tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"),
                 ]
         )):
-            # if len(all_results) % 1000 == 0:
+
             tf.logging.info("Processing example: %d" % (mm))
-            # wf.write(json.dumps(result)+"/n")
+            #------------临时代码------------------------#
+            if mm == 10:
+                break
+            #------------临时代码------------------------#
             example_id = result["unique_ids"]
             predict = result["predict"]
             label = result["label"]
             category_probility = "_".join([str(i) for i in result["category_probility"].tolist()])
             path = result["path"].decode('utf-8')
             wf.write("{}\t{}\t{}\t{}\t{}\n".format(example_id, predict, label,category_probility,path))
+            if configDir["do_save_conv_image"]:
+                conv_image = filter_conv_image(result)
+                if not os.path.exists(configDir["conv_image_path"]):
+                    os.makedirs(configDir["conv_image_path"])
+                numpy_path = os.path.join(configDir["conv_image_path"],os.path.basename(path)[:-4])
+                np.savez(numpy_path,**conv_image)
+            if configDir["grad_cam"]:
+                def show_cam_on_image(img, mask):
+                    heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
+                    heatmap = np.float32(heatmap) / 255
+                    cam_out = heatmap + np.float32(img)
+                    cam_out = cam_out / np.max(cam_out)
+                    plt.imshow(cam_out)
+                    plt.show()
+
+                cam = result["cam"]
+                image = result["image"]
+
+                cam = cam / np.max(cam)
+                cam = cv2.resize(cam, (configDir["resize"], configDir["resize"]))
+                image  = image / 255
+
+                # Superimposing the visualization with the image.
+                show_cam_on_image(image,cam)
+
         wf.close()
 
 

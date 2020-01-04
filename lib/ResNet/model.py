@@ -604,12 +604,12 @@ class Model(object):
                 # This provides a large performance boost on GPU. See
                 # https://www.tensorflow.org/performance/performance_guide#data_formats
                 inputs = tf.transpose(inputs, [0, 3, 1, 2])
-
-            inputs = conv2d_fixed_padding(
-                inputs=inputs, filters=self.num_filters, kernel_size=self.kernel_size,
-                strides=self.conv_stride, data_format=self.data_format)
-            inputs = tf.identity(inputs, 'initial_conv')
-            self.activate_dict["initial_conv"] = inputs
+            with tf.variable_scope("init_conv"):
+                inputs = conv2d_fixed_padding(
+                    inputs=inputs, filters=self.num_filters, kernel_size=self.kernel_size,
+                    strides=self.conv_stride, data_format=self.data_format)
+                inputs = tf.identity(inputs, 'initial_conv')
+                self.activate_dict["initial_conv"] = inputs
 
             # We do not include batch normalization or activation functions in V2
             # for the initial conv1 because the first ResNet unit will perform these
@@ -620,20 +620,22 @@ class Model(object):
                 inputs = tf.nn.relu(inputs)
 
             if self.first_pool_size:
-                inputs = tf.layers.max_pooling2d(
-                    inputs=inputs, pool_size=self.first_pool_size,
-                    strides=self.first_pool_stride, padding='SAME',
-                    data_format=self.data_format)
-                inputs = tf.identity(inputs, 'initial_max_pool')
+                with tf.variable_scope("first_pooling"):
+                    inputs = tf.layers.max_pooling2d(
+                        inputs=inputs, pool_size=self.first_pool_size,
+                        strides=self.first_pool_stride, padding='SAME',
+                        data_format=self.data_format)
+                    inputs = tf.identity(inputs, 'initial_max_pool')
 
             for i, num_blocks in enumerate(self.block_sizes):
-                num_filters = self.num_filters * (2 ** i)
-                inputs = block_layer(
-                    inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
-                    block_fn=self.block_fn, blocks=num_blocks,
-                    strides=self.block_strides[i], training=training,
-                    name='block_layer{}'.format(i + 1), data_format=self.data_format)
-                self.activate_dict["block{}".format(i + 1)] = inputs
+                with tf.variable_scope("block_{}".format(i+1)):
+                    num_filters = self.num_filters * (2 ** i)
+                    inputs = block_layer(
+                        inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
+                        block_fn=self.block_fn, blocks=num_blocks,
+                        strides=self.block_strides[i], training=training,
+                        name='block_layer{}'.format(i + 1), data_format=self.data_format)
+                    self.activate_dict["block{}".format(i + 1)] = inputs
 
             # Only apply the BN and ReLU for model that does pre_activation in each
             # building/bottleneck block, eg resnet V2.
@@ -646,11 +648,12 @@ class Model(object):
             # ResNet does an Average Pooling layer over pool_size,
             # but that is the same as doing a reduce_mean. We do a reduce_mean
             # here because it performs better than AveragePooling2D.
-            axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
-            inputs = tf.reduce_mean(inputs, axes, keepdims=True)
-            inputs = tf.identity(inputs, 'final_reduce_mean')
-
-            inputs = tf.reshape(inputs, [-1, self.final_size])
-            inputs = tf.layers.dense(inputs=inputs, units=self.num_classes)
-            inputs = tf.identity(inputs, 'final_dense')
+            with tf.variable_scope("AveragePooling"):
+                axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
+                inputs = tf.reduce_mean(inputs, axes, keepdims=True)
+                inputs = tf.identity(inputs, 'final_reduce_mean')
+            with tf.variable_scope("final_dense"):
+                inputs = tf.reshape(inputs, [-1, self.final_size])
+                inputs = tf.layers.dense(inputs=inputs, units=self.num_classes)
+                inputs = tf.identity(inputs, 'final_dense')
             return inputs
