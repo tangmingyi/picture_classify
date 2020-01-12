@@ -67,22 +67,22 @@ def model_fn_builder(config,model_config,learning_rate,
         else:
             batch = params["predict_batch_size"]
 
-
-        picture_lt = tf.unstack(picture, num=batch)
-        if config["grad_cam"]:
-            organ_image = []
-        for i in range(len(picture_lt)):
-            image = tf.image.decode_jpeg(picture_lt[i], channels=3)
-            image = tf.image.resize_images(image,[config["resize"],config["resize"]])
+        if config["file_base"]:
+            picture_lt = tf.unstack(picture, num=batch)
             if config["grad_cam"]:
-                organ_image.append(image)
-            picture_lt[i] = tf.image.per_image_standardization(image)
-        picture = tf.stack(picture_lt)
-        if config["grad_cam"]:
-            organ_image = tf.stack(organ_image)
+                organ_image = []
+            for i in range(len(picture_lt)):
+                image = tf.image.decode_jpeg(picture_lt[i], channels=3)
+                image = tf.image.resize_images(image,[config["resize"],config["resize"]])
+                if config["grad_cam"]:
+                    organ_image.append(image)
+                picture_lt[i] = tf.image.per_image_standardization(image)
+            picture = tf.stack(picture_lt)
+            if config["grad_cam"]:
+                organ_image = tf.stack(organ_image)
 
 
-        picture = tf.cast(picture, tf.float32)
+            picture = tf.cast(picture, tf.float32)
 
 
         # 图像增强

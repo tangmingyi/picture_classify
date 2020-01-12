@@ -11,9 +11,13 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from tensorflow.python import debug as tfdbg
+from utility.data_tool.autoaugment import CIFAR10Policy
 
 configDir = json.load(open("config_file/config.json", "r", encoding="utf-8"))
 model_config = json.load(open(configDir["mode_config"], 'r', encoding='utf-8'))
+#todo:只有file_base input_fn 支持grade_cam可视化。
+if not configDir["file_base"]:
+    configDir["grad_cam"] = False
 
 if configDir["do_save_conv_image"]:
     configDir["test_batch_size"] = 1
@@ -25,8 +29,10 @@ if not configDir["do_test"]:
 def show_cam_on_image(img, mask):
     heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
     heatmap = np.float32(heatmap) / 255
-    cam_out = heatmap + np.float32(img)
+    cam_out = heatmap * 0.4 + np.float32(img)
     cam_out = cam_out / np.max(cam_out)
+    plt.imshow(heatmap)
+    plt.show()
     plt.imshow(cam_out)
     plt.show()
 
@@ -96,12 +102,22 @@ def main(_):
             elif configDir["tfdbgtensorboard"]:
                 trainHookLt.append(tfdbg.TensorBoardDebugHook(grpc_debug_server_addresses="localhost:11111"))
 
-        train_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["train_input"], is_training=True, drop_remainder=True,
-                                                     batch="train_batch_size")
+        if configDir["file_base"]:
+            train_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["train_input"], is_training=True, drop_remainder=True,
+                                                         batch="train_batch_size")
 
-        # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
-        val_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["val_input"], is_training=False, drop_remainder=True,
-                                                   batch="eval_batch_size")
+            val_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["val_input"], is_training=False, drop_remainder=True,
+                                                       batch="eval_batch_size")
+        else:
+            augment_fn = CIFAR10Policy()
+            train_genter_fn = model_input.get_generator_fn(configDir,configDir["train_input"],augment_fn)
+            train_input_fn = model_input.input_fn_builder(configDir,train_genter_fn,True,True,"train_batch_size")
+
+            # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
+            val_genter_fn = model_input.get_generator_fn(configDir,configDir["val_input"])
+            val_input_fn = model_input.input_fn_builder(configDir,val_genter_fn,False,True,"eval_batch_size")
+
+
         trainSpec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps, hooks=trainHookLt)
         valSpec = tf.estimator.EvalSpec(input_fn=val_input_fn, steps=configDir["trainStepVal"],
                                         throttle_secs=configDir["throttle_secs"], hooks=evalHookLt)
@@ -113,8 +129,13 @@ def main(_):
         tf.logging.info("  Batch size = %d", configDir["test_batch_size"])
 
         # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
-        predict_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["predict_input"], is_training=False, drop_remainder=True,
-                                                       batch="predict_batch_size")
+        if configDir["file_base"]:
+            predict_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["predict_input"], is_training=False, drop_remainder=True,
+                                                           batch="predict_batch_size")
+        else:
+            predict_genter_fn = model_input.get_generator_fn(configDir, configDir["predict_input"])
+            predict_input_fn = model_input.input_fn_builder(configDir, predict_genter_fn, False, True, "predict_batch_size")
+
 
         wf = open(configDir["test_res_output"], "w", encoding="utf-8")
         for mm, result in enumerate(estimator.predict(

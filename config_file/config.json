@@ -1,22 +1,24 @@
 {
   "PD": "/home/tangmy/data/cifar-10-batches-py",
   "DP": "data/tf_record",
-  "model_dir": "result/model/checkpoint/resnet_focal_resize128",
-  "train_input": "data/tf_record/train_jpg",
-  "val_input": "data/tf_record/test_jpg",
-  "predict_input": "data/tf_record/test_jpg",
+  "model_dir": "result/model/checkpoint/resnet_focal_resize128_test_128",
+  "train_input": "/home/tangmy/data/raw_jpg_data/train",
+  "val_input": "/home/tangmy/data/raw_jpg_data/test",
+  "predict_input": "/home/tangmy/data/raw_jpg_data/test",
   "save_summary_steps": 300,
   "save_checkpoints_steps": 3000,
   "keep_checkpoint_max": 5,
   "print_loss_steps": 100,
   "resize": 128,
 
-  "do_train": true,
+  "file_base":false,
+
+  "do_train": false,
   "train_batch_size": 32,
   "val_batch_size": 128,
   "num_train_epochs": 300,
 
-  "do_test": false,
+  "do_test": true,
   "test_batch_size": 128,
   "test_res_output": "result/predict.txt",
 
@@ -24,7 +26,7 @@
   "conv_image_path": "result/conv_image",
 
   "grad_cam": true,
-  "layer_name": "block4",
+  "layer_name": "initial_conv",
 
 
 
