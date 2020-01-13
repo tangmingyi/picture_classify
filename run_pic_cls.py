@@ -110,11 +110,11 @@ def main(_):
                                                        batch="eval_batch_size")
         else:
             augment_fn = CIFAR10Policy()
-            train_genter_fn = model_input.get_generator_fn(configDir,configDir["train_input"],augment_fn)
+            train_genter_fn = model_input.get_generator_fn(configDir,configDir["train_input"],True,augment_fn)
             train_input_fn = model_input.input_fn_builder(configDir,train_genter_fn,True,True,"train_batch_size")
 
             # input_files = os.listdir(os.path.join(configDir["DP"], "test"))
-            val_genter_fn = model_input.get_generator_fn(configDir,configDir["val_input"])
+            val_genter_fn = model_input.get_generator_fn(configDir,configDir["val_input"],False)
             val_input_fn = model_input.input_fn_builder(configDir,val_genter_fn,False,True,"eval_batch_size")
 
 
@@ -133,7 +133,7 @@ def main(_):
             predict_input_fn = model_input.file_based_input_fn_builder(input_file=configDir["predict_input"], is_training=False, drop_remainder=True,
                                                            batch="predict_batch_size")
         else:
-            predict_genter_fn = model_input.get_generator_fn(configDir, configDir["predict_input"])
+            predict_genter_fn = model_input.get_generator_fn(configDir, configDir["predict_input"],False)
             predict_input_fn = model_input.input_fn_builder(configDir, predict_genter_fn, False, True, "predict_batch_size")
 
 
